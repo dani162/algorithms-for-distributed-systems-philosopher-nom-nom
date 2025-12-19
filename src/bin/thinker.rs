@@ -1,18 +1,12 @@
-use std::{
-    net::{SocketAddr, UdpSocket},
-    thread::sleep,
-};
+use std::net::{SocketAddr, UdpSocket};
+use std::thread::sleep;
 
 use clap::Parser;
-use philosopher_nom_nom_ring::{
-    NETWORK_BUFFER_SIZE, TICK_INTERVAL, Transceiver, messages::InitMessages,
-};
-
-use crate::thinker_lib::thinker::Thinker;
-
-pub mod thinker_lib {
-    pub mod thinker;
-}
+use philosopher_nom_nom_ring::NETWORK_BUFFER_SIZE;
+use philosopher_nom_nom_ring::TICK_INTERVAL;
+use philosopher_nom_nom_ring::messages::{Id, ThinkerMessage};
+use philosopher_nom_nom_ring::thinker_lib::thinker::Thinker;
+use philosopher_nom_nom_ring::{Transceiver, messages::InitMessages};
 
 #[derive(Parser, Debug)]
 pub struct ThinkerCli {
@@ -26,12 +20,38 @@ fn main() {
     let socket = UdpSocket::bind(cli.address).unwrap();
     let local_address = socket.local_addr().unwrap();
     let transceiver = Transceiver::new(socket);
-    transceiver.send(InitMessages::ThinkerRequest, &cli.server_address);
+    let id = Id::random();
+    transceiver.send(
+        InitMessages::ThinkerRequest(id.clone()),
+        &cli.server_address,
+    );
 
-    let mut thinker = Thinker::new(transceiver);
     let mut buffer = [0; NETWORK_BUFFER_SIZE];
+    let mut unhandled_nessages = vec![];
 
-    log::info!("Started thinker {local_address}");
+    let init_params = 'outer: loop {
+        while let Some(message) = transceiver.receive::<ThinkerMessage>(&mut buffer) {
+            match message {
+                (ThinkerMessage::Init(init_thinker_params), _) => {
+                    break 'outer init_thinker_params;
+                }
+                message => {
+                    unhandled_nessages.push(message);
+                }
+            }
+        }
+        sleep(TICK_INTERVAL);
+    };
+
+    let mut thinker: Thinker = Thinker::new(
+        id,
+        transceiver,
+        unhandled_nessages,
+        init_params.forks,
+        init_params.next_thinker,
+    );
+
+    log::info!("Started thinker {}", local_address);
     loop {
         thinker.tick(&mut buffer);
         sleep(TICK_INTERVAL);

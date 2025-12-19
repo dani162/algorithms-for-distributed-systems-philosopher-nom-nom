@@ -1,23 +1,33 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 
-use philosopher_nom_nom_ring::Transceiver;
-use philosopher_nom_nom_ring::messages::{ForkMessages, ThinkerMessages};
+use rkyv::{Archive, Deserialize, Serialize};
+
+use crate::Transceiver;
+use crate::messages::{ForkMessages, Id, ThinkerMessage};
+
+#[derive(Archive, Serialize, Deserialize, Clone)]
+pub struct ForkRef {
+    pub address: SocketAddr,
+    pub id: Id<Fork>,
+}
+
+enum ForkState {
+    Unused,
+    Used,
+}
 
 pub struct Fork {
+    pub id: Id<Fork>,
     state: ForkState,
     queue: VecDeque<SocketAddr>,
     transceiver: Transceiver,
 }
 
-pub enum ForkState {
-    Unused,
-    Used,
-}
-
 impl Fork {
-    pub fn new(transceiver: Transceiver) -> Self {
+    pub fn new(id: Id<Fork>, transceiver: Transceiver) -> Self {
         Self {
+            id,
             state: ForkState::Unused,
             queue: VecDeque::new(),
             transceiver,
@@ -31,7 +41,7 @@ impl Fork {
                     ForkState::Unused => {
                         self.state = ForkState::Used;
                         self.transceiver
-                            .send(ThinkerMessages::TakeForkAccepted, &entity);
+                            .send(ThinkerMessage::TakeForkAccepted(self.id.clone()), &entity);
                         log::info!("Fork taken by {entity}");
                     }
                     ForkState::Used => {
@@ -50,7 +60,7 @@ impl Fork {
                         } else {
                             let next = self.queue.pop_front().unwrap();
                             self.transceiver
-                                .send(ThinkerMessages::TakeForkAccepted, &next);
+                                .send(ThinkerMessage::TakeForkAccepted(self.id.clone()), &next);
                             log::info!(
                                 "Fork released by {entity}, fork given to {next}, {} thinkers in queue remaining",
                                 self.queue.len()

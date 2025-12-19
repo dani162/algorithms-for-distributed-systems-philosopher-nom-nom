@@ -5,14 +5,10 @@ use std::{
 
 use clap::Parser;
 use philosopher_nom_nom_ring::{
-    NETWORK_BUFFER_SIZE, TICK_INTERVAL, Transceiver, messages::InitMessages,
+    NETWORK_BUFFER_SIZE, TICK_INTERVAL, Transceiver,
+    fork_lib::fork::Fork,
+    messages::{Id, InitMessages},
 };
-
-use crate::fork_lib::fork::Fork;
-
-pub mod fork_lib {
-    pub mod fork;
-}
 
 #[derive(Parser, Debug)]
 pub struct ForkCli {
@@ -27,11 +23,12 @@ fn main() {
     let socket = UdpSocket::bind(cli.address).unwrap();
     let local_address = socket.local_addr().unwrap();
     let transceiver = Transceiver::new(socket);
-    transceiver.send(InitMessages::ForkRequest, &cli.server_address);
 
-    let mut fork = Fork::new(transceiver);
     let mut buffer = [0; NETWORK_BUFFER_SIZE];
 
+    let id = Id::random();
+    transceiver.send(InitMessages::ForkRequest(id.clone()), &cli.server_address);
+    let mut fork = Fork::new(id, transceiver);
     log::info!("Started fork {local_address}");
     loop {
         fork.tick(&mut buffer);

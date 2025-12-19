@@ -1,11 +1,10 @@
-use std::{
-    net::{SocketAddr, UdpSocket},
-    thread::sleep,
-    time::Duration,
-};
+use std::net::{SocketAddr, UdpSocket};
 
 use clap::Parser;
-use philosopher_nom_nom_ring::messages::{InitMessages, ThinkerMessages};
+use philosopher_nom_nom_ring::{
+    fork_lib::fork::ForkRef,
+    messages::{InitMessages, InitThinkerParams, ThinkerMessage},
+};
 use rand::{rng, seq::SliceRandom};
 
 #[derive(Parser, Debug)]
@@ -21,7 +20,7 @@ fn main() {
     simple_logger::SimpleLogger::new().env().init().unwrap();
     let cli = InitCli::parse();
     let socket = UdpSocket::bind(cli.address).unwrap();
-    let mut waiting_forks: Vec<SocketAddr> = vec![];
+    let mut waiting_forks: Vec<ForkRef> = vec![];
     let mut waiting_thinkers: Vec<SocketAddr> = vec![];
 
     let mut buf = [0; 1024];
@@ -31,9 +30,12 @@ fn main() {
         let (_, entity) = socket.recv_from(&mut buf).unwrap();
         let message = rkyv::from_bytes::<InitMessages, rkyv::rancor::Error>(&buf).unwrap();
         match message {
-            InitMessages::ForkRequest => {
+            InitMessages::ForkRequest(id) => {
                 if cli.thinker > waiting_forks.len() {
-                    waiting_forks.push(entity);
+                    waiting_forks.push(ForkRef {
+                        address: entity,
+                        id,
+                    });
                     log::info!("Added fork {entity} to queue");
                 } else {
                     log::warn!(
@@ -41,7 +43,7 @@ fn main() {
                     )
                 }
             }
-            InitMessages::ThinkerRequest => {
+            InitMessages::ThinkerRequest(_) => {
                 if cli.thinker > waiting_thinkers.len() {
                     waiting_thinkers.push(entity);
                     log::info!("Added thinker {entity} to queue");
@@ -60,37 +62,29 @@ fn main() {
     }
 }
 
-fn notify_entities(mut thinkers: Vec<SocketAddr>, mut forks: Vec<SocketAddr>, socket: &UdpSocket) {
+fn notify_entities(mut thinkers: Vec<SocketAddr>, mut forks: Vec<ForkRef>, socket: &UdpSocket) {
     thinkers.shuffle(&mut rng());
     forks.shuffle(&mut rng());
 
     for i in 0..thinkers.len() {
         let message = match i {
-            0 => ThinkerMessages::Init {
+            0 => ThinkerMessage::Init(InitThinkerParams {
                 owns_token: true,
-                fork_left: *forks.last().unwrap(),
-                fork_right: forks[i],
+                forks: [forks.last().unwrap().clone(), forks[i].clone()],
                 next_thinker: thinkers[i + 1],
-            },
-            i if i == thinkers.len() - 1 => ThinkerMessages::Init {
+            }),
+            i if i == thinkers.len() - 1 => ThinkerMessage::Init(InitThinkerParams {
                 owns_token: false,
-                fork_left: forks[i - 1],
-                fork_right: forks[i],
+                forks: [forks[i - 1].clone(), forks[i].clone()],
                 next_thinker: thinkers[0],
-            },
-            i => ThinkerMessages::Init {
+            }),
+            i => ThinkerMessage::Init(InitThinkerParams {
                 owns_token: false,
-                fork_left: forks[i - 1],
-                fork_right: forks[i],
+                forks: [forks[i - 1].clone(), forks[i].clone()],
                 next_thinker: thinkers[i + 1],
-            },
+            }),
         };
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&message).unwrap();
         socket.send_to(&bytes, thinkers[i]).unwrap();
     }
-    sleep(Duration::from_secs(1));
-    thinkers.iter().for_each(|thinker| {
-        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&ThinkerMessages::Start).unwrap();
-        socket.send_to(&bytes, thinker).unwrap();
-    });
 }

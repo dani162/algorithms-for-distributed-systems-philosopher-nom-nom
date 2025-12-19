@@ -14,6 +14,12 @@ use rkyv::{
 };
 
 pub mod messages;
+pub mod thinker_lib {
+    pub mod thinker;
+}
+pub mod fork_lib {
+    pub mod fork;
+}
 
 pub const TICK_INTERVAL: Duration = Duration::from_millis(50);
 pub const NETWORK_BUFFER_SIZE: usize = 1024;
