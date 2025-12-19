@@ -3,13 +3,13 @@ use std::net::SocketAddr;
 use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Archive, Serialize, Deserialize)]
-pub enum InitRequests {
+pub enum InitMessages {
     ForkRequest,
     ThinkerRequest,
 }
 
 #[derive(Archive, Serialize, Deserialize)]
-pub enum ThinkerResponses {
+pub enum ThinkerMessages {
     Init {
         owns_token: bool,
         fork_left: SocketAddr,
@@ -17,4 +17,12 @@ pub enum ThinkerResponses {
         next_thinker: SocketAddr,
     },
     Start,
+    TakeForkAccepted,
+    Token,
+}
+
+#[derive(Archive, Serialize, Deserialize)]
+pub enum ForkMessages {
+    Take,
+    Release,
 }

@@ -16,29 +16,29 @@ use rkyv::{
 pub mod messages;
 
 pub const TICK_INTERVAL: Duration = Duration::from_millis(50);
+pub const NETWORK_BUFFER_SIZE: usize = 1024;
 
-pub struct UdpTransceiver {
+pub struct Transceiver {
     socket: UdpSocket,
 }
-impl UdpTransceiver {
-    pub fn new(address: SocketAddr) -> Self {
-        let socket = UdpSocket::bind(address).unwrap();
+impl Transceiver {
+    pub fn new(socket: UdpSocket) -> Self {
         socket.set_nonblocking(true).unwrap();
         Self { socket }
     }
 
     pub fn send(
         &self,
-        message: &impl for<'a> Serialize<
+        message: impl for<'a> Serialize<
             HighSerializer<AlignedVec, ArenaHandle<'a>, rkyv::rancor::Error>,
         >,
         to: &SocketAddr,
     ) {
-        let message = rkyv::to_bytes::<rkyv::rancor::Error>(message).unwrap();
+        let message = rkyv::to_bytes::<rkyv::rancor::Error>(&message).unwrap();
         self.socket.send_to(&message, to).unwrap();
     }
 
-    pub fn receive<T>(&self, buffer: &mut [u8; 1024]) -> Option<(T, SocketAddr)>
+    pub fn receive<T>(&self, buffer: &mut [u8]) -> Option<(T, SocketAddr)>
     where
         T: Archive,
         T::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>

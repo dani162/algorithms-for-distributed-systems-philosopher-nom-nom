@@ -4,7 +4,9 @@ use std::{
 };
 
 use clap::Parser;
-use philosopher_nom_nom_ring::{TICK_INTERVAL, messages::InitRequests};
+use philosopher_nom_nom_ring::{
+    NETWORK_BUFFER_SIZE, TICK_INTERVAL, Transceiver, messages::InitMessages,
+};
 
 use crate::fork_lib::fork::Fork;
 
@@ -23,15 +25,16 @@ fn main() {
     simple_logger::SimpleLogger::new().env().init().unwrap();
     let cli = ForkCli::parse();
     let socket = UdpSocket::bind(cli.address).unwrap();
+    let local_address = socket.local_addr().unwrap();
+    let transceiver = Transceiver::new(socket);
+    transceiver.send(InitMessages::ForkRequest, &cli.server_address);
 
-    log::info!("Started fork {}", socket.local_addr().unwrap());
-    let message = InitRequests::ForkRequest;
-    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&message).unwrap();
-    socket.send_to(&bytes, cli.server_address).unwrap();
+    let mut fork = Fork::new(transceiver);
+    let mut buffer = [0; NETWORK_BUFFER_SIZE];
 
-    let fork = Fork::new(socket);
+    log::info!("Started fork {local_address}");
     loop {
-        fork.tick();
+        fork.tick(&mut buffer);
         sleep(TICK_INTERVAL);
     }
 }

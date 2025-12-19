@@ -5,7 +5,7 @@ use std::{
 };
 
 use clap::Parser;
-use philosopher_nom_nom_ring::messages::{InitRequests, ThinkerResponses};
+use philosopher_nom_nom_ring::messages::{InitMessages, ThinkerMessages};
 use rand::{rng, seq::SliceRandom};
 
 #[derive(Parser, Debug)]
@@ -29,9 +29,9 @@ fn main() {
     log::info!("Started init server");
     loop {
         let (_, entity) = socket.recv_from(&mut buf).unwrap();
-        let message = rkyv::from_bytes::<InitRequests, rkyv::rancor::Error>(&buf).unwrap();
+        let message = rkyv::from_bytes::<InitMessages, rkyv::rancor::Error>(&buf).unwrap();
         match message {
-            InitRequests::ForkRequest => {
+            InitMessages::ForkRequest => {
                 if cli.thinker > waiting_forks.len() {
                     waiting_forks.push(entity);
                     log::info!("Added fork {entity} to queue");
@@ -41,7 +41,7 @@ fn main() {
                     )
                 }
             }
-            InitRequests::ThinkerRequest => {
+            InitMessages::ThinkerRequest => {
                 if cli.thinker > waiting_thinkers.len() {
                     waiting_thinkers.push(entity);
                     log::info!("Added thinker {entity} to queue");
@@ -66,19 +66,19 @@ fn notify_entities(mut thinkers: Vec<SocketAddr>, mut forks: Vec<SocketAddr>, so
 
     for i in 0..thinkers.len() {
         let message = match i {
-            0 => ThinkerResponses::Init {
+            0 => ThinkerMessages::Init {
                 owns_token: true,
                 fork_left: *forks.last().unwrap(),
                 fork_right: forks[i],
                 next_thinker: thinkers[i + 1],
             },
-            i if i == thinkers.len() - 1 => ThinkerResponses::Init {
+            i if i == thinkers.len() - 1 => ThinkerMessages::Init {
                 owns_token: false,
                 fork_left: forks[i - 1],
                 fork_right: forks[i],
                 next_thinker: thinkers[0],
             },
-            i => ThinkerResponses::Init {
+            i => ThinkerMessages::Init {
                 owns_token: false,
                 fork_left: forks[i - 1],
                 fork_right: forks[i],
@@ -90,7 +90,7 @@ fn notify_entities(mut thinkers: Vec<SocketAddr>, mut forks: Vec<SocketAddr>, so
     }
     sleep(Duration::from_secs(1));
     thinkers.iter().for_each(|thinker| {
-        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&ThinkerResponses::Start).unwrap();
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&ThinkerMessages::Start).unwrap();
         socket.send_to(&bytes, thinker).unwrap();
     });
 }
