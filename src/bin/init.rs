@@ -1,10 +1,8 @@
 use std::net::{SocketAddr, UdpSocket};
 
 use clap::Parser;
-use philosopher_nom_nom_ring::{
-    fork_lib::fork::ForkRef,
-    messages::{InitMessages, InitThinkerParams, ThinkerMessage},
-};
+use philosopher_nom_nom_ring::messages::{InitMessages, InitThinkerParams, ThinkerMessage};
+use philosopher_nom_nom_ring::{Transceiver, fork_lib::fork::ForkRef};
 use rand::{rng, seq::SliceRandom};
 
 #[derive(Parser, Debug)]
@@ -23,46 +21,51 @@ fn main() {
     let mut waiting_forks: Vec<ForkRef> = vec![];
     let mut waiting_thinkers: Vec<SocketAddr> = vec![];
 
-    let mut buf = [0; 1024];
+    let transceiver: Transceiver = Transceiver::new(socket);
 
+    let mut buffer = [0; 1024];
     log::info!("Started init server");
     loop {
-        let (_, entity) = socket.recv_from(&mut buf).unwrap();
-        let message = rkyv::from_bytes::<InitMessages, rkyv::rancor::Error>(&buf).unwrap();
-        match message {
-            InitMessages::ForkRequest(id) => {
-                if cli.thinker > waiting_forks.len() {
-                    waiting_forks.push(ForkRef {
-                        address: entity,
-                        id,
-                    });
-                    log::info!("Added fork {entity} to queue");
-                } else {
-                    log::warn!(
-                        "Additional fork {entity} tried to connect, but queue was already full."
-                    )
+        while let Some((message, entity)) = transceiver.receive::<InitMessages>(&mut buffer) {
+            match message {
+                InitMessages::ForkRequest(id) => {
+                    if cli.thinker > waiting_forks.len() {
+                        waiting_forks.push(ForkRef {
+                            address: entity,
+                            id,
+                        });
+                        log::info!("Added fork {entity} to queue");
+                    } else {
+                        log::warn!(
+                            "Additional fork {entity} tried to connect, but queue was already full."
+                        )
+                    }
+                }
+                InitMessages::ThinkerRequest(_) => {
+                    if cli.thinker > waiting_thinkers.len() {
+                        waiting_thinkers.push(entity);
+                        log::info!("Added thinker {entity} to queue");
+                    } else {
+                        log::warn!(
+                            "Additional thinker {entity} tried to connect, but queue was already full."
+                        )
+                    }
                 }
             }
-            InitMessages::ThinkerRequest(_) => {
-                if cli.thinker > waiting_thinkers.len() {
-                    waiting_thinkers.push(entity);
-                    log::info!("Added thinker {entity} to queue");
-                } else {
-                    log::warn!(
-                        "Additional thinker {entity} tried to connect, but queue was already full."
-                    )
-                }
+            if cli.thinker == waiting_thinkers.len() && cli.thinker == waiting_forks.len() {
+                notify_entities(waiting_thinkers, waiting_forks, &transceiver);
+                log::info!("Notified all queued entities. Shutting down");
+                return;
             }
-        }
-        if cli.thinker == waiting_thinkers.len() && cli.thinker == waiting_forks.len() {
-            notify_entities(waiting_thinkers, waiting_forks, &socket);
-            log::info!("Notified all queued entities. Shutting down");
-            return;
         }
     }
 }
 
-fn notify_entities(mut thinkers: Vec<SocketAddr>, mut forks: Vec<ForkRef>, socket: &UdpSocket) {
+fn notify_entities(
+    mut thinkers: Vec<SocketAddr>,
+    mut forks: Vec<ForkRef>,
+    transceiver: &Transceiver,
+) {
     thinkers.shuffle(&mut rng());
     forks.shuffle(&mut rng());
 
@@ -84,7 +87,6 @@ fn notify_entities(mut thinkers: Vec<SocketAddr>, mut forks: Vec<ForkRef>, socke
                 next_thinker: thinkers[i + 1],
             }),
         };
-        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&message).unwrap();
-        socket.send_to(&bytes, thinkers[i]).unwrap();
+        transceiver.send(message, &thinkers[i]);
     }
 }
