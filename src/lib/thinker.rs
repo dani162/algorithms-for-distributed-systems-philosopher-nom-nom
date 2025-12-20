@@ -11,22 +11,25 @@ use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::{MAX_EATING_TIME, MAX_THINKING_TIME, MIN_THINKING_TIME};
 
-#[derive(Archive, Serialize, Deserialize, Clone)]
+#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct ThinkerRef {
     pub address: SocketAddr,
     pub id: Id<Thinker>,
 }
 
+#[derive(Debug)]
 enum WaitingForkState {
     Waiting,
     Taken,
 }
 
+#[derive(Debug)]
 enum HungryTokenState {
     WaitingForToken,
     TokenReceived,
 }
 
+#[derive(Debug)]
 enum ThinkerState {
     Thinking { stop_thinking_at: SystemTime },
     Hungry { token_state: HungryTokenState },
@@ -34,6 +37,7 @@ enum ThinkerState {
     Eating { stop_eating_at: SystemTime },
 }
 
+#[derive(Debug)]
 pub struct Thinker {
     _id: Id<Thinker>,
     transceiver: Transceiver,

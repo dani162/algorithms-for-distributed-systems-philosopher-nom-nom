@@ -7,17 +7,19 @@ use crate::lib::messages::{ForkMessages, ThinkerMessage};
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 
-#[derive(Archive, Serialize, Deserialize, Clone)]
+#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct ForkRef {
     pub address: SocketAddr,
     pub id: Id<Fork>,
 }
 
+#[derive(Debug)]
 enum ForkState {
     Unused,
     Used,
 }
 
+#[derive(Debug)]
 pub struct Fork {
     pub id: Id<Fork>,
     state: ForkState,

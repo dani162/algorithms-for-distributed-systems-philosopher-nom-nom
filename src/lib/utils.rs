@@ -6,7 +6,7 @@ pub trait EntityType {
     fn display_name() -> &'static str;
 }
 
-#[derive(Archive, Serialize, Deserialize, Eq)]
+#[derive(Archive, Serialize, Deserialize, Eq, Debug)]
 pub struct Id<T> {
     pub value: String,
     _phantom: PhantomData<T>,
