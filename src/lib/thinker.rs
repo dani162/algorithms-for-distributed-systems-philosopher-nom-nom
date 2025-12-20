@@ -1,21 +1,32 @@
 use std::net::SocketAddr;
+use std::time::SystemTime;
 
-use crate::{
-    Transceiver,
-    fork_lib::fork::ForkRef,
-    messages::{ForkMessages, Id, ThinkerMessage},
-};
+use rand::Rng;
+use rand::rngs::ThreadRng;
+use rkyv::{Archive, Deserialize, Serialize};
 
-enum ForkState {
+use crate::lib::fork::ForkRef;
+use crate::lib::messages::{ForkMessages, ThinkerMessage};
+use crate::lib::transceiver::Transceiver;
+use crate::lib::utils::{EntityType, Id};
+use crate::{MAX_EATING_TIME, MAX_THINKING_TIME, MIN_THINKING_TIME};
+
+#[derive(Archive, Serialize, Deserialize, Clone)]
+pub struct ThinkerRef {
+    pub address: SocketAddr,
+    pub id: Id<Thinker>,
+}
+
+enum WaitingForkState {
     Waiting,
     Taken,
 }
 
 enum ThinkerState {
-    Thinking,
+    Thinking { stop_thinking_at: SystemTime },
     Hungry,
-    WaitingForForks([ForkState; 2]),
-    Eating,
+    WaitingForForks([WaitingForkState; 2]),
+    Eating { stop_eating_at: SystemTime },
 }
 
 pub struct Thinker {
@@ -23,7 +34,8 @@ pub struct Thinker {
     transceiver: Transceiver,
     state: ThinkerState,
     forks: [ForkRef; 2],
-    next_thinker: SocketAddr,
+    next_thinker: ThinkerRef,
+    rng: ThreadRng,
 }
 impl Thinker {
     pub fn new(
@@ -31,14 +43,19 @@ impl Thinker {
         transceiver: Transceiver,
         unhandled_messages: Vec<(ThinkerMessage, SocketAddr)>,
         forks: [ForkRef; 2],
-        next_thinker: SocketAddr,
+        next_thinker: ThinkerRef,
     ) -> Self {
+        let mut rng = rand::rng();
         let mut thinker = Self {
             id,
             transceiver,
-            state: ThinkerState::Thinking,
+            state: ThinkerState::Thinking {
+                stop_thinking_at: SystemTime::now()
+                    + rng.random_range(MIN_THINKING_TIME..=MAX_EATING_TIME),
+            },
             forks,
             next_thinker,
+            rng,
         };
         unhandled_messages
             .into_iter()
@@ -54,39 +71,46 @@ impl Thinker {
                 log::error!("Already initialized but got init message from {entity}");
             }
             ThinkerMessage::Token => match self.state {
-                ThinkerState::Thinking
+                ThinkerState::Thinking { .. }
                 | ThinkerState::WaitingForForks(_)
-                | ThinkerState::Eating => {
+                | ThinkerState::Eating { .. } => {
                     self.transceiver
-                        .send(ThinkerMessage::Token, &self.next_thinker);
+                        .send(ThinkerMessage::Token, &self.next_thinker.address);
                 }
                 ThinkerState::Hungry => {
                     self.forks.iter().for_each(|fork| {
                         self.transceiver.send(ForkMessages::Take, &fork.address);
                     });
                     self.state = ThinkerState::WaitingForForks(
-                        self.forks.clone().map(|_| ForkState::Waiting),
+                        self.forks.clone().map(|_| WaitingForkState::Waiting),
                     );
+                    log::info!("Got token, requesting forks");
                 }
             },
             ThinkerMessage::TakeForkAccepted(id) => match &mut self.state {
                 ThinkerState::WaitingForForks(forks_state) => {
-                    let (_, state) = self
+                    let (entity, state) = self
                         .forks
                         .iter()
                         .zip(&mut *forks_state)
                         .find(|(fork, _)| fork.id.eq(&id))
                         .unwrap();
-                    *state = ForkState::Taken;
-                    // TODO: maybe move to update state function
+                    *state = WaitingForkState::Taken;
+                    log::info!("Taken fork {}", entity.address);
                     if forks_state
                         .iter()
-                        .all(|state| matches!(state, ForkState::Taken))
+                        .all(|state| matches!(state, WaitingForkState::Taken))
                     {
-                        self.state = ThinkerState::Eating;
+                        self.state = ThinkerState::Eating {
+                            stop_eating_at: SystemTime::now()
+                                + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
+                        };
+                        log::info!("Start eating");
                     }
                 }
-                ThinkerState::Thinking | ThinkerState::Eating | ThinkerState::Hungry => {
+                ThinkerState::Thinking { .. }
+                | ThinkerState::Eating { .. }
+                | ThinkerState::Hungry => {
                     // TODO: This could happen if thinker node crashes restarts and afterwards gets
                     //  the response from the fork. This should be handled with proper error
                     //  handling. Maybe just tell the fork to release instantly.
@@ -101,5 +125,11 @@ impl Thinker {
             self.handle_message(message, entity);
         }
         // TODO: update states (thinking & eating time stuff)
+    }
+}
+
+impl EntityType for Thinker {
+    fn display_name() -> &'static str {
+        "Thinker"
     }
 }

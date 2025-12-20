@@ -2,11 +2,11 @@ use std::net::{SocketAddr, UdpSocket};
 use std::thread::sleep;
 
 use clap::Parser;
-use philosopher_nom_nom_ring::NETWORK_BUFFER_SIZE;
-use philosopher_nom_nom_ring::TICK_INTERVAL;
-use philosopher_nom_nom_ring::messages::{Id, ThinkerMessage};
-use philosopher_nom_nom_ring::thinker_lib::thinker::Thinker;
-use philosopher_nom_nom_ring::{Transceiver, messages::InitMessages};
+use philosopher_nom_nom_ring::lib::messages::{InitMessages, ThinkerMessage};
+use philosopher_nom_nom_ring::lib::thinker::Thinker;
+use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
+use philosopher_nom_nom_ring::lib::utils::Id;
+use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, TICK_INTERVAL};
 
 #[derive(Parser, Debug)]
 pub struct ThinkerCli {

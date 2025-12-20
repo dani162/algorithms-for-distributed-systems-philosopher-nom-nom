@@ -3,8 +3,9 @@ use std::net::SocketAddr;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::Transceiver;
-use crate::messages::{ForkMessages, Id, ThinkerMessage};
+use crate::lib::messages::{ForkMessages, ThinkerMessage};
+use crate::lib::transceiver::Transceiver;
+use crate::lib::utils::{EntityType, Id};
 
 #[derive(Archive, Serialize, Deserialize, Clone)]
 pub struct ForkRef {
@@ -70,5 +71,11 @@ impl Fork {
                 },
             }
         }
+    }
+}
+
+impl EntityType for Fork {
+    fn display_name() -> &'static str {
+        "Fork"
     }
 }

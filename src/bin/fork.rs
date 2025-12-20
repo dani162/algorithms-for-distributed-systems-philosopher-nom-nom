@@ -1,14 +1,12 @@
-use std::{
-    net::{SocketAddr, UdpSocket},
-    thread::sleep,
-};
+use std::net::{SocketAddr, UdpSocket};
+use std::thread::sleep;
 
 use clap::Parser;
-use philosopher_nom_nom_ring::{
-    NETWORK_BUFFER_SIZE, TICK_INTERVAL, Transceiver,
-    fork_lib::fork::Fork,
-    messages::{Id, InitMessages},
-};
+use philosopher_nom_nom_ring::lib::fork::Fork;
+use philosopher_nom_nom_ring::lib::messages::InitMessages;
+use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
+use philosopher_nom_nom_ring::lib::utils::Id;
+use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, TICK_INTERVAL};
 
 #[derive(Parser, Debug)]
 pub struct ForkCli {
