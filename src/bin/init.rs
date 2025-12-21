@@ -1,6 +1,7 @@
 use std::net::{SocketAddr, UdpSocket};
 
 use clap::Parser;
+use philosopher_nom_nom_ring::NETWORK_BUFFER_SIZE;
 use philosopher_nom_nom_ring::lib::messages::{InitMessages, InitThinkerParams};
 use philosopher_nom_nom_ring::lib::thinker::ThinkerRef;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
@@ -25,10 +26,11 @@ fn main() {
 
     let transceiver: Transceiver = Transceiver::new(socket);
 
-    let mut buffer = [0; 1024];
+    let mut buffer = [0; NETWORK_BUFFER_SIZE];
     log::info!("Started init server");
     loop {
         while let Some((message, entity)) = transceiver.receive::<InitMessages>(&mut buffer) {
+            buffer = [0; NETWORK_BUFFER_SIZE];
             match message {
                 InitMessages::ForkRequest(id) => {
                     if cli.thinker > waiting_forks.len() {

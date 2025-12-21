@@ -16,6 +16,7 @@ pub struct ThinkerCli {
 }
 
 fn main() {
+    simple_logger::SimpleLogger::new().env().init().unwrap();
     let cli = ThinkerCli::parse();
     let socket = UdpSocket::bind(cli.address).unwrap();
     let local_address = socket.local_addr().unwrap();

@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use rkyv::{Archive, Deserialize, Serialize};
+use uuid::Uuid;
 
 pub trait EntityType {
     fn display_name() -> &'static str;
@@ -8,13 +9,13 @@ pub trait EntityType {
 
 #[derive(Archive, Serialize, Deserialize, Eq, Debug)]
 pub struct Id<T> {
-    pub value: String,
+    pub value: Uuid,
     _phantom: PhantomData<T>,
 }
 impl<T> Id<T> {
     pub fn random() -> Self {
         Self {
-            value: uuid::Uuid::new_v4().to_string(),
+            value: uuid::Uuid::new_v4(),
             _phantom: PhantomData,
         }
     }
@@ -22,7 +23,7 @@ impl<T> Id<T> {
 impl<T> Clone for Id<T> {
     fn clone(&self) -> Self {
         Self {
-            value: self.value.clone(),
+            value: self.value,
             _phantom: PhantomData,
         }
     }

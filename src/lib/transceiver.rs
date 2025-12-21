@@ -20,11 +20,13 @@ impl Transceiver {
     pub fn send<T>(&self, message: T, to: &SocketAddr)
     where
         T: for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rkyv::rancor::Error>>
+            + Archive
             + std::fmt::Debug,
+        T::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
+            + Deserialize<T, Strategy<Pool, rkyv::rancor::Error>>,
     {
-        println!("Send -> {:?}", message);
-        let message = rkyv::to_bytes::<rkyv::rancor::Error>(&message).unwrap();
-        self.socket.send_to(&message, to).unwrap();
+        let message_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&message).unwrap();
+        self.socket.send_to(&message_bytes, to).unwrap();
     }
 
     pub fn receive<T>(&self, buffer: &mut [u8]) -> Option<(T, SocketAddr)>
@@ -33,13 +35,12 @@ impl Transceiver {
         T::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<T, Strategy<Pool, rkyv::rancor::Error>>,
     {
-        let (_, entity) = match self.socket.recv_from(buffer) {
+        let (len, entity) = match self.socket.recv_from(buffer) {
             Ok(bytes) => bytes,
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock) => None?,
             Err(e) => panic!("{:?}", e),
         };
-        let message = rkyv::from_bytes::<T, rkyv::rancor::Error>(buffer).unwrap();
-        println!("Receive -> {:?}", message);
+        let message = rkyv::from_bytes::<T, rkyv::rancor::Error>(&buffer[0..len]).unwrap();
         Some((message, entity))
     }
 }
