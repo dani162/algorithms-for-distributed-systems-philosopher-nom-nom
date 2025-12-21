@@ -60,7 +60,7 @@ fn main() {
                 }
             }
             if cli.thinker == waiting_thinkers.len() && cli.thinker == waiting_forks.len() {
-                notify_entities(waiting_thinkers, waiting_forks, &transceiver);
+                notify_entities(waiting_thinkers, waiting_forks, &transceiver, cli.tokens);
                 log::info!("Notified all queued entities. Shutting down");
                 return;
             }
@@ -72,28 +72,32 @@ fn notify_entities(
     mut thinkers: Vec<ThinkerRef>,
     mut forks: Vec<ForkRef>,
     transceiver: &Transceiver,
+    amount_tokens: usize,
 ) {
     thinkers.shuffle(&mut rng());
     forks.shuffle(&mut rng());
 
     for i in 0..thinkers.len() {
-        let message = match i {
-            0 => ThinkerMessage::Init(InitThinkerParams {
-                owns_token: true,
-                forks: [forks.last().unwrap().clone(), forks[i].clone()],
-                next_thinker: thinkers[i + 1].clone(),
-            }),
-            i if i == thinkers.len() - 1 => ThinkerMessage::Init(InitThinkerParams {
-                owns_token: false,
-                forks: [forks[i - 1].clone(), forks[i].clone()],
-                next_thinker: thinkers[0].clone(),
-            }),
-            i => ThinkerMessage::Init(InitThinkerParams {
-                owns_token: false,
-                forks: [forks[i - 1].clone(), forks[i].clone()],
-                next_thinker: thinkers[i + 1].clone(),
-            }),
+        let is_last = i + 1 == thinkers.len();
+        let owns_token = i < amount_tokens;
+
+        let next_fork = if is_last {
+            forks.first().unwrap().clone()
+        } else {
+            forks[i + 1].clone()
         };
+
+        let next_thinker = if is_last {
+            thinkers.first().unwrap().clone()
+        } else {
+            thinkers[i + 1].clone()
+        };
+
+        let message = ThinkerMessage::Init(InitThinkerParams {
+            owns_token,
+            forks: [forks[i].clone(), next_fork],
+            next_thinker,
+        });
         transceiver.send(message, &thinkers[i].address);
     }
 }

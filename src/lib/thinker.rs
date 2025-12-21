@@ -9,7 +9,7 @@ use crate::lib::fork::ForkRef;
 use crate::lib::messages::{ForkMessages, ThinkerMessage};
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
-use crate::{MAX_EATING_TIME, MAX_THINKING_TIME, MIN_THINKING_TIME};
+use crate::{MAX_EATING_TIME, MAX_THINKING_TIME, MIN_EATING_TIME, MIN_THINKING_TIME};
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct ThinkerRef {
@@ -65,7 +65,7 @@ impl Thinker {
             transceiver,
             state: ThinkerState::Thinking {
                 stop_thinking_at: SystemTime::now()
-                    + rng.random_range(MIN_THINKING_TIME..=MAX_EATING_TIME),
+                    + rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
             },
             forks,
             next_thinker,
@@ -141,6 +141,7 @@ impl Thinker {
                         self.state = ThinkerState::Hungry {
                             token_state: HungryTokenState::WaitingForToken,
                         };
+                        log::info!("Got hungry");
                     }
                     std::cmp::Ordering::Less => {
                         // Nothing to do here
@@ -171,7 +172,7 @@ impl Thinker {
                 {
                     self.state = ThinkerState::Eating {
                         stop_eating_at: SystemTime::now()
-                            + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
+                            + self.rng.random_range(MIN_EATING_TIME..=MAX_EATING_TIME),
                     };
                     log::info!("Start eating");
                 }
@@ -179,15 +180,15 @@ impl Thinker {
             ThinkerState::Eating { stop_eating_at } => {
                 match SystemTime::now().cmp(stop_eating_at) {
                     std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
-                        self.state = ThinkerState::Thinking {
-                            stop_thinking_at: SystemTime::now()
-                                + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
-                        };
                         self.transceiver
                             .send(ThinkerMessage::Token, &self.next_thinker.address);
                         self.forks.iter().for_each(|fork| {
                             self.transceiver.send(ForkMessages::Release, &fork.address)
                         });
+                        self.state = ThinkerState::Thinking {
+                            stop_thinking_at: SystemTime::now()
+                                + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
+                        };
                         log::info!(
                             "Start Thinking, transfer token to {}, release forks",
                             self.next_thinker.address
