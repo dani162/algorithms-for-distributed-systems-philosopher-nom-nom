@@ -16,3 +16,10 @@ pub const MAX_EATING_TIME: Duration = Duration::from_secs(3);
 
 pub const MIN_THINKING_TIME: Duration = Duration::from_secs(1);
 pub const MAX_THINKING_TIME: Duration = Duration::from_secs(3);
+
+pub fn init_logger() {
+    env_logger::builder()
+        .format_target(false)
+        .filter_level(log::LevelFilter::Info)
+        .init();
+}

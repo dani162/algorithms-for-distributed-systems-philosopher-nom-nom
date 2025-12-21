@@ -1,11 +1,11 @@
 use std::net::{SocketAddr, UdpSocket};
 
 use clap::Parser;
-use philosopher_nom_nom_ring::NETWORK_BUFFER_SIZE;
 use philosopher_nom_nom_ring::lib::messages::{InitMessages, InitThinkerParams};
 use philosopher_nom_nom_ring::lib::thinker::ThinkerRef;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
 use philosopher_nom_nom_ring::lib::{fork::ForkRef, messages::ThinkerMessage};
+use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, init_logger};
 use rand::{rng, seq::SliceRandom};
 
 #[derive(Parser, Debug)]
@@ -18,7 +18,7 @@ pub struct InitCli {
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().env().init().unwrap();
+    init_logger();
     let cli = InitCli::parse();
     let socket = UdpSocket::bind(cli.address).unwrap();
     let mut waiting_forks: Vec<ForkRef> = vec![];

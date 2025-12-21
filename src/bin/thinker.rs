@@ -6,26 +6,23 @@ use philosopher_nom_nom_ring::lib::messages::{InitMessages, ThinkerMessage};
 use philosopher_nom_nom_ring::lib::thinker::Thinker;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
 use philosopher_nom_nom_ring::lib::utils::Id;
-use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, TICK_INTERVAL};
+use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, TICK_INTERVAL, init_logger};
 
 #[derive(Parser, Debug)]
 pub struct ThinkerCli {
     address: SocketAddr,
     #[arg(short, long)]
-    server_address: SocketAddr,
+    init_server: SocketAddr,
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().env().init().unwrap();
+    init_logger();
     let cli = ThinkerCli::parse();
     let socket = UdpSocket::bind(cli.address).unwrap();
     let local_address = socket.local_addr().unwrap();
     let transceiver = Transceiver::new(socket);
     let id = Id::random();
-    transceiver.send(
-        InitMessages::ThinkerRequest(id.clone()),
-        &cli.server_address,
-    );
+    transceiver.send(InitMessages::ThinkerRequest(id.clone()), &cli.init_server);
 
     let mut buffer = [0; NETWORK_BUFFER_SIZE];
     let mut unhandled_nessages = vec![];
