@@ -53,8 +53,13 @@ impl Thinker {
         unhandled_messages: Vec<(ThinkerMessage, SocketAddr)>,
         forks: [ForkRef; 2],
         next_thinker: ThinkerRef,
+        has_token: bool,
     ) -> Self {
         let mut rng = rand::rng();
+
+        if has_token {
+            transceiver.send(ThinkerMessage::Token, &next_thinker.address);
+        }
         let mut thinker = Self {
             _id: id,
             transceiver,
@@ -174,12 +179,19 @@ impl Thinker {
             ThinkerState::Eating { stop_eating_at } => {
                 match SystemTime::now().cmp(stop_eating_at) {
                     std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
-                        self.transceiver
-                            .send(ThinkerMessage::Token, &self.next_thinker.address);
                         self.state = ThinkerState::Thinking {
                             stop_thinking_at: SystemTime::now()
                                 + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
-                        }
+                        };
+                        self.transceiver
+                            .send(ThinkerMessage::Token, &self.next_thinker.address);
+                        self.forks.iter().for_each(|fork| {
+                            self.transceiver.send(ForkMessages::Release, &fork.address)
+                        });
+                        log::info!(
+                            "Start Thinking, transfer token to {}, release forks",
+                            self.next_thinker.address
+                        );
                     }
                     std::cmp::Ordering::Less => {
                         // Nothing to do here

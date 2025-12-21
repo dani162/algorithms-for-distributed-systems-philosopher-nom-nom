@@ -50,6 +50,7 @@ fn main() {
         unhandled_nessages,
         init_params.forks,
         init_params.next_thinker,
+        init_params.owns_token,
     );
 
     log::info!("Started thinker {}", local_address);
