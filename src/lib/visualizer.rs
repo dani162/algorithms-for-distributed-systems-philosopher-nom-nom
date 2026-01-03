@@ -70,23 +70,6 @@ impl Visualizer {
         print!("\x1B[2J\x1B[1;1H");
         self.thinkers.iter().zip(&self.forks).for_each(
             |((thinker, thinker_state), (fork, fork_state))| {
-                let thinker_state_char = match thinker_state {
-                    VisualizerThinkerState::Thinking => "🤔",
-                    VisualizerThinkerState::Hungry => "😩",
-                    VisualizerThinkerState::WaitingForForks => "💤",
-                    VisualizerThinkerState::Eating => "🧀",
-                };
-                let visualizer_state_str = match thinker_state {
-                    VisualizerThinkerState::Thinking => "Thinking",
-                    VisualizerThinkerState::Hungry => "Hungry",
-                    VisualizerThinkerState::WaitingForForks => "WaitingForForks",
-                    VisualizerThinkerState::Eating => "Eating",
-                };
-                println!(
-                    "{} [{:-^15}] {} {}",
-                    thinker_state_char, visualizer_state_str, thinker.address, thinker.id.value
-                );
-
                 enum UsedBy {
                     Above(Id<Thinker>),
                     Bellow(Id<Thinker>),
@@ -101,7 +84,7 @@ impl Visualizer {
                     VisualizerForkState::Used(id) => Some(UsedBy::Bellow(id.clone())),
                 };
                 match &fork_side {
-                    Some(UsedBy::Above(id)) => println!("  ⬆️ ({})", id.value),
+                    Some(UsedBy::Bellow(id)) => println!("  ⬆️ ({})", id.value),
                     _ => println!(),
                 };
 
@@ -119,9 +102,27 @@ impl Visualizer {
                 );
 
                 match &fork_side {
-                    Some(UsedBy::Bellow(id)) => println!("  ⬇️ ({})", id.value),
+                    Some(UsedBy::Above(id)) => println!("  ⬇️ ({})", id.value),
                     _ => println!(),
                 };
+
+                // Thinker
+                let thinker_state_char = match thinker_state {
+                    VisualizerThinkerState::Thinking => "🤔",
+                    VisualizerThinkerState::Hungry => "😩",
+                    VisualizerThinkerState::WaitingForForks => "💤",
+                    VisualizerThinkerState::Eating => "🧀",
+                };
+                let visualizer_state_str = match thinker_state {
+                    VisualizerThinkerState::Thinking => "Thinking",
+                    VisualizerThinkerState::Hungry => "Hungry",
+                    VisualizerThinkerState::WaitingForForks => "WaitingForForks",
+                    VisualizerThinkerState::Eating => "Eating",
+                };
+                println!(
+                    "{} [{:-^15}] {} {}",
+                    thinker_state_char, visualizer_state_str, thinker.address, thinker.id.value
+                );
             },
         );
     }
