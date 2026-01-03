@@ -9,7 +9,7 @@ pub mod lib {
     pub mod visualizer;
 }
 
-pub const TICK_INTERVAL: Duration = Duration::from_millis(5);
+pub const TICK_INTERVAL: Duration = Duration::from_millis(100);
 pub const NETWORK_BUFFER_SIZE: usize = 1024;
 
 pub const MIN_EATING_TIME: Duration = Duration::from_secs(1);
