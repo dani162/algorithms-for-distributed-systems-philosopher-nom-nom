@@ -17,6 +17,11 @@ pub const MAX_EATING_TIME: Duration = Duration::from_secs(3);
 pub const MIN_THINKING_TIME: Duration = Duration::from_secs(1);
 pub const MAX_THINKING_TIME: Duration = Duration::from_secs(3);
 
+pub const RETRY_INTERVAL: Duration = Duration::from_millis(500);
+pub const FORK_LEASE: Duration = Duration::from_secs(5);
+pub const FORK_KEEPALIVE_INTERVAL: Duration = Duration::from_millis(500);
+pub const TOKEN_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub fn init_logger() {
     env_logger::builder()
         .format_target(false)

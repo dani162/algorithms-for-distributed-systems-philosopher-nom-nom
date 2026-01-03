@@ -4,6 +4,18 @@ use crate::lib::fork::{Fork, ForkRef};
 use crate::lib::thinker::{Thinker, ThinkerRef};
 use crate::lib::utils::Id;
 
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Epoch(pub u64);
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReqId(pub u64);
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub struct Token {
+    pub seq: u64,
+    pub issuer: Id<Thinker>,
+}
+
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum InitMessages {
     ForkRequest(Id<Fork>),
@@ -20,12 +32,31 @@ pub struct InitThinkerParams {
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ThinkerMessage {
     Init(InitThinkerParams),
-    TakeForkAccepted(Id<Fork>),
-    Token,
+
+    TakeForkAccepted {
+        fork: Id<Fork>,
+        epoch: Epoch,
+        req: ReqId,
+    },
+
+    Token(Token),
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ForkMessages {
-    Take,
-    Release,
+    Take {
+        thinker: Id<Thinker>,
+        epoch: Epoch,
+        req: ReqId,
+    },
+    Release {
+        thinker: Id<Thinker>,
+        epoch: Epoch,
+        req: ReqId,
+    },
+
+    KeepAlive {
+        thinker: Id<Thinker>,
+        epoch: Epoch,
+    },
 }

@@ -1,15 +1,23 @@
 use std::net::SocketAddr;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use rand::Rng;
 use rand::rngs::ThreadRng;
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::lib::fork::ForkRef;
-use crate::lib::messages::{ForkMessages, ThinkerMessage};
+use crate::lib::messages::{Epoch, ForkMessages, ReqId, ThinkerMessage, Token};
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::{MAX_EATING_TIME, MAX_THINKING_TIME, MIN_EATING_TIME, MIN_THINKING_TIME};
+
+const RETRY_INTERVAL: Duration = Duration::from_millis(200);
+
+const FORK_KEEPALIVE_INTERVAL: Duration = Duration::from_millis(500);
+
+const TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
+
+const TOKEN_JITTER_MAX: Duration = Duration::from_millis(900);
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct ThinkerRef {
@@ -17,13 +25,13 @@ pub struct ThinkerRef {
     pub id: Id<Thinker>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum WaitingForkState {
     Waiting,
     Taken,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum HungryTokenState {
     WaitingForToken,
     TokenReceived,
@@ -39,29 +47,76 @@ enum ThinkerState {
 
 #[derive(Debug)]
 pub struct Thinker {
-    _id: Id<Thinker>,
+    id: Id<Thinker>,
+    epoch: Epoch,
+    req_counter: u64,
+
     transceiver: Transceiver,
     state: ThinkerState,
     forks: [ForkRef; 2],
     next_thinker: ThinkerRef,
     rng: ThreadRng,
+
+    last_token_seen: Instant,
+    best_token: Token,
+
+    is_token_master: bool,
+
+    fork_pending: [Option<(ReqId, Instant)>; 2],
+    fork_granted: [Option<ReqId>; 2],
+    last_keepalive: Instant,
+
+    drop_token_once: bool,
+    dropped_token_once: bool,
 }
+
 impl Thinker {
+    fn token_rank(t: &Token) -> (u64, uuid::Uuid) {
+        (t.seq, t.issuer.value)
+    }
+
+    fn token_is_better(a: &Token, b: &Token) -> bool {
+        Self::token_rank(a) > Self::token_rank(b)
+    }
+
     pub fn new(
         id: Id<Thinker>,
         transceiver: Transceiver,
-        unhandled_messages: Vec<(ThinkerMessage, SocketAddr)>,
         forks: [ForkRef; 2],
         next_thinker: ThinkerRef,
-        has_token: bool,
+        owns_token: bool,
     ) -> Self {
         let mut rng = rand::rng();
+        let now = Instant::now();
+        let epoch = Epoch(rand::random::<u64>());
 
-        if has_token {
-            transceiver.send(ThinkerMessage::Token, &next_thinker.address);
+        let drop_token_once = std::env::var("DROP_TOKEN_ONCE")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .unwrap_or(0)
+            > 0;
+
+        let mut best_token = Token {
+            seq: 0,
+            issuer: id.clone(),
+        };
+
+        if owns_token {
+            best_token = Token {
+                seq: 1,
+                issuer: id.clone(),
+            };
+            transceiver.send(
+                ThinkerMessage::Token(best_token.clone()),
+                &next_thinker.address,
+            );
         }
-        let mut thinker = Self {
-            _id: id,
+
+        Self {
+            id,
+            epoch,
+            req_counter: 1,
+
             transceiver,
             state: ThinkerState::Thinking {
                 stop_thinking_at: SystemTime::now()
@@ -70,105 +125,168 @@ impl Thinker {
             forks,
             next_thinker,
             rng,
-        };
-        unhandled_messages
-            .into_iter()
-            .for_each(|(message, entity)| {
-                thinker.handle_message(message, entity);
-            });
-        thinker
+
+            last_token_seen: now,
+            best_token,
+
+            is_token_master: owns_token,
+
+            fork_pending: [None, None],
+            fork_granted: [None, None],
+            last_keepalive: now,
+
+            drop_token_once,
+            dropped_token_once: false,
+        }
     }
 
-    pub fn handle_message(&mut self, message: ThinkerMessage, entity: SocketAddr) {
+    fn handle_message(&mut self, message: ThinkerMessage, entity: SocketAddr) {
         match message {
             ThinkerMessage::Init(_) => {
                 log::error!("Already initialized but got init message from {entity}");
             }
-            ThinkerMessage::Token => match &mut self.state {
-                ThinkerState::Thinking { .. }
-                | ThinkerState::WaitingForForks(_)
-                | ThinkerState::Eating { .. } => {
-                    // Token not needed at the moment, passing token to next node
-                    self.transceiver
-                        .send(ThinkerMessage::Token, &self.next_thinker.address);
+
+            ThinkerMessage::Token(token) => {
+                if self.drop_token_once && !self.dropped_token_once {
+                    self.dropped_token_once = true;
+                    log::warn!("Dropped token ONCE seq={}", token.seq);
+                    return;
                 }
-                ThinkerState::Hungry { token_state } => match token_state {
-                    HungryTokenState::WaitingForToken => {
-                        *token_state = HungryTokenState::TokenReceived
+
+                let drop_pct: u8 = std::env::var("DROP_TOKEN_PCT")
+                    .ok()
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .unwrap_or(0)
+                    .min(100);
+
+                if drop_pct > 0 && self.rng.random_range(0..100) < drop_pct {
+                    log::warn!(
+                        "Dropped token seq={} (DROP_TOKEN_PCT={})",
+                        token.seq,
+                        drop_pct
+                    );
+                    return;
+                }
+
+                let now = Instant::now();
+                self.last_token_seen = now;
+
+                if Self::token_is_better(&self.best_token, &token) {
+                    return;
+                }
+                if Self::token_is_better(&token, &self.best_token) {
+                    self.best_token = token.clone();
+                }
+
+                match &mut self.state {
+                    ThinkerState::Thinking { .. }
+                    | ThinkerState::WaitingForForks(_)
+                    | ThinkerState::Eating { .. } => {
+                        self.transceiver.send(
+                            ThinkerMessage::Token(self.best_token.clone()),
+                            &self.next_thinker.address,
+                        );
                     }
-                    HungryTokenState::TokenReceived => {
-                        // Token not needed at the moment, passing token to next node
-                        self.transceiver
-                            .send(ThinkerMessage::Token, &self.next_thinker.address);
-                    }
-                },
-            },
-            ThinkerMessage::TakeForkAccepted(id) => match &mut self.state {
-                ThinkerState::WaitingForForks(forks_state) => {
-                    let (entity, waiting_fork_state) = self
-                        .forks
-                        .iter()
-                        .zip(&mut *forks_state)
-                        .find(|(fork, _)| fork.id.eq(&id))
-                        .unwrap();
-                    match waiting_fork_state {
-                        WaitingForkState::Waiting => {
-                            *waiting_fork_state = WaitingForkState::Taken;
-                            log::info!("Taken fork {}", entity.address);
+
+                    ThinkerState::Hungry { token_state } => match token_state {
+                        HungryTokenState::WaitingForToken => {
+                            *token_state = HungryTokenState::TokenReceived;
                         }
-                        WaitingForkState::Taken => {
-                            panic!("Got fork, but already own it at the moment")
+                        HungryTokenState::TokenReceived => {
+                            self.transceiver.send(
+                                ThinkerMessage::Token(self.best_token.clone()),
+                                &self.next_thinker.address,
+                            );
                         }
+                    },
+                }
+            }
+
+            ThinkerMessage::TakeForkAccepted { fork, epoch, req } => {
+                if epoch != self.epoch {
+                    return;
+                }
+
+                let idx = match self.forks.iter().position(|f| f.id.eq(&fork)) {
+                    Some(i) => i,
+                    None => return,
+                };
+
+                let pending_ok = self.fork_pending[idx]
+                    .map(|(r, _)| r == req)
+                    .unwrap_or(false);
+
+                if !pending_ok {
+                    return;
+                }
+
+                self.fork_pending[idx] = None;
+                self.fork_granted[idx] = Some(req);
+
+                if let ThinkerState::WaitingForForks(forks_state) = &mut self.state {
+                    if matches!(forks_state[idx], WaitingForkState::Waiting) {
+                        forks_state[idx] = WaitingForkState::Taken;
+                        log::info!("Taken fork {}", self.forks[idx].address);
                     }
                 }
-                ThinkerState::Thinking { .. }
-                | ThinkerState::Eating { .. }
-                | ThinkerState::Hungry { .. } => {
-                    // TODO: This could happen if thinker node crashes restarts and afterwards gets
-                    //  the response from the fork. This should be handled with proper error
-                    //  handling. Maybe just tell the fork to release instantly.
-                    panic!("Unescpected token accpeted message");
-                }
-            },
+            }
         }
     }
 
-    pub fn update_state(&mut self) {
-        match &self.state {
+    fn update_state(&mut self) {
+        match &mut self.state {
             ThinkerState::Thinking { stop_thinking_at } => {
-                match SystemTime::now().cmp(stop_thinking_at) {
-                    std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
-                        self.state = ThinkerState::Hungry {
-                            token_state: HungryTokenState::WaitingForToken,
-                        };
-                        log::info!("Got hungry");
-                    }
-                    std::cmp::Ordering::Less => {
-                        // Nothing to do here
-                    }
+                if SystemTime::now() >= *stop_thinking_at {
+                    self.state = ThinkerState::Hungry {
+                        token_state: HungryTokenState::WaitingForToken,
+                    };
+                    log::info!("Got hungry");
                 }
             }
-            ThinkerState::Hungry { token_state } => {
-                match token_state {
-                    HungryTokenState::WaitingForToken => {
-                        // Nothing to do here
-                    }
-                    HungryTokenState::TokenReceived => {
-                        self.forks.iter().for_each(|fork| {
-                            self.transceiver.send(ForkMessages::Take, &fork.address);
-                        });
-                        self.state = ThinkerState::WaitingForForks(
-                            self.forks.clone().map(|_| WaitingForkState::Waiting),
+
+            ThinkerState::Hungry { token_state } => match token_state {
+                HungryTokenState::WaitingForToken => {}
+                HungryTokenState::TokenReceived => {
+                    for i in 0..2 {
+                        let req = ReqId(self.req_counter);
+                        self.req_counter += 1;
+
+                        self.fork_pending[i] = Some((req, Instant::now()));
+                        self.transceiver.send(
+                            ForkMessages::Take {
+                                thinker: self.id.clone(),
+                                epoch: self.epoch,
+                                req,
+                            },
+                            &self.forks[i].address,
                         );
-                        log::info!("Got token, requesting forks");
+                    }
+
+                    self.state = ThinkerState::WaitingForForks([WaitingForkState::Waiting; 2]);
+                    log::info!("Got token, requesting forks");
+                }
+            },
+
+            ThinkerState::WaitingForForks(forks_state) => {
+                for i in 0..2 {
+                    if let Some((req, last_sent)) = self.fork_pending[i] {
+                        if Instant::now().duration_since(last_sent) > RETRY_INTERVAL {
+                            self.fork_pending[i] = Some((req, Instant::now()));
+                            self.transceiver.send(
+                                ForkMessages::Take {
+                                    thinker: self.id.clone(),
+                                    epoch: self.epoch,
+                                    req,
+                                },
+                                &self.forks[i].address,
+                            );
+                        }
                     }
                 }
-                // Nothing to do here
-            }
-            ThinkerState::WaitingForForks(forks_state) => {
+
                 if forks_state
                     .iter()
-                    .all(|state| matches!(state, WaitingForkState::Taken))
+                    .all(|s| matches!(s, WaitingForkState::Taken))
                 {
                     self.state = ThinkerState::Eating {
                         stop_eating_at: SystemTime::now()
@@ -177,26 +295,37 @@ impl Thinker {
                     log::info!("Start eating");
                 }
             }
+
             ThinkerState::Eating { stop_eating_at } => {
-                match SystemTime::now().cmp(stop_eating_at) {
-                    std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
-                        self.transceiver
-                            .send(ThinkerMessage::Token, &self.next_thinker.address);
-                        self.forks.iter().for_each(|fork| {
-                            self.transceiver.send(ForkMessages::Release, &fork.address)
-                        });
-                        self.state = ThinkerState::Thinking {
-                            stop_thinking_at: SystemTime::now()
-                                + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
-                        };
-                        log::info!(
-                            "Start Thinking, transfer token to {}, release forks",
-                            self.next_thinker.address
-                        );
+                if SystemTime::now() >= *stop_eating_at {
+                    self.transceiver.send(
+                        ThinkerMessage::Token(self.best_token.clone()),
+                        &self.next_thinker.address,
+                    );
+
+                    for i in 0..2 {
+                        if let Some(req) = self.fork_granted[i] {
+                            self.transceiver.send(
+                                ForkMessages::Release {
+                                    thinker: self.id.clone(),
+                                    epoch: self.epoch,
+                                    req,
+                                },
+                                &self.forks[i].address,
+                            );
+                            self.fork_granted[i] = None;
+                        }
                     }
-                    std::cmp::Ordering::Less => {
-                        // Nothing to do here
-                    }
+
+                    self.state = ThinkerState::Thinking {
+                        stop_thinking_at: SystemTime::now()
+                            + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
+                    };
+
+                    log::info!(
+                        "Start Thinking, transfer token to {}, release forks",
+                        self.next_thinker.address
+                    );
                 }
             }
         }
@@ -206,7 +335,54 @@ impl Thinker {
         while let Some((message, entity)) = self.transceiver.receive::<ThinkerMessage>(buffer) {
             self.handle_message(message, entity);
         }
+
         self.update_state();
+
+        if Instant::now().duration_since(self.last_keepalive) > FORK_KEEPALIVE_INTERVAL {
+            for i in 0..2 {
+                if self.fork_granted[i].is_some() {
+                    self.transceiver.send(
+                        ForkMessages::KeepAlive {
+                            thinker: self.id.clone(),
+                            epoch: self.epoch,
+                        },
+                        &self.forks[i].address,
+                    );
+                }
+            }
+            self.last_keepalive = Instant::now();
+        }
+
+        let waiting_for_token = matches!(
+            self.state,
+            ThinkerState::Hungry {
+                token_state: HungryTokenState::WaitingForToken
+            }
+        );
+
+        if self.is_token_master && waiting_for_token {
+            let jitter_ms =
+                (self.id.value.as_u128() % (TOKEN_JITTER_MAX.as_millis() as u128 + 1)) as u64;
+            let jitter = Duration::from_millis(jitter_ms);
+
+            if Instant::now().duration_since(self.last_token_seen) > TOKEN_TIMEOUT + jitter {
+                let new_token = Token {
+                    seq: self.best_token.seq + 1,
+                    issuer: self.id.clone(),
+                };
+                self.best_token = new_token;
+                self.last_token_seen = Instant::now();
+
+                if let ThinkerState::Hungry { token_state } = &mut self.state {
+                    *token_state = HungryTokenState::TokenReceived;
+                }
+
+                log::warn!(
+                    "Token timeout (master + hungry) -> regenerated token seq={}",
+                    self.best_token.seq
+                );
+            }
+        }
     }
 }
 
