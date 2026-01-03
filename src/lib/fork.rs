@@ -81,6 +81,7 @@ impl Fork {
                             log::info!("Fork released by {entity}");
                         } else {
                             let next = self.queue.pop_front().unwrap();
+                            self.state = ForkState::Used(next.clone());
                             self.transceiver.send(
                                 ThinkerMessage::TakeForkAccepted(self.id.clone()),
                                 &next.address,
