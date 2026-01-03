@@ -25,7 +25,7 @@ fn main() {
     transceiver.send(InitMessages::ThinkerRequest(id.clone()), &cli.init_server);
 
     let mut buffer = [0; NETWORK_BUFFER_SIZE];
-    let mut unhandled_nessages = vec![];
+    let mut unhandled_messages = vec![];
 
     let init_params = 'outer: loop {
         while let Some(message) = transceiver.receive::<ThinkerMessage>(&mut buffer) {
@@ -34,7 +34,7 @@ fn main() {
                     break 'outer init_thinker_params;
                 }
                 message => {
-                    unhandled_nessages.push(message);
+                    unhandled_messages.push(message);
                 }
             }
         }
@@ -44,7 +44,7 @@ fn main() {
     let mut thinker: Thinker = Thinker::new(
         id,
         transceiver,
-        unhandled_nessages,
+        unhandled_messages,
         init_params.forks,
         init_params.next_thinker,
         init_params.owns_token,

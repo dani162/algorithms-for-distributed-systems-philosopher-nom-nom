@@ -1,9 +1,14 @@
 use std::net::{SocketAddr, UdpSocket};
+use std::thread::sleep;
+use std::time::Duration;
 
 use clap::Parser;
-use philosopher_nom_nom_ring::lib::messages::{InitMessages, InitThinkerParams};
+use philosopher_nom_nom_ring::lib::messages::{
+    InitMessages, InitThinkerParams, VisualizerMessages,
+};
 use philosopher_nom_nom_ring::lib::thinker::ThinkerRef;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
+use philosopher_nom_nom_ring::lib::visualizer::VisualizerRef;
 use philosopher_nom_nom_ring::lib::{fork::ForkRef, messages::ThinkerMessage};
 use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, init_logger};
 use rand::{rng, seq::SliceRandom};
@@ -15,6 +20,8 @@ pub struct InitCli {
     thinker: usize,
     #[arg(long)]
     tokens: usize,
+    #[arg(long)]
+    visualizer: bool,
 }
 
 fn main() {
@@ -23,11 +30,12 @@ fn main() {
     let socket = UdpSocket::bind(cli.address).unwrap();
     let mut waiting_forks: Vec<ForkRef> = vec![];
     let mut waiting_thinkers: Vec<ThinkerRef> = vec![];
+    let mut waiting_visualizer: Option<VisualizerRef> = None;
 
     let transceiver: Transceiver = Transceiver::new(socket);
 
     let mut buffer = [0; NETWORK_BUFFER_SIZE];
-    log::info!("Started init server");
+    log::info!("Started init server, {:?}", cli);
     loop {
         while let Some((message, entity)) = transceiver.receive::<InitMessages>(&mut buffer) {
             buffer = [0; NETWORK_BUFFER_SIZE];
@@ -58,9 +66,31 @@ fn main() {
                         )
                     }
                 }
+                InitMessages::VisualizerRequest => {
+                    if cli.visualizer && waiting_visualizer.is_none() {
+                        let _ = waiting_visualizer.insert(VisualizerRef { address: entity });
+                    } else if waiting_visualizer.is_some() {
+                        log::warn!(
+                            "Additional visualizer {entity} tried to connect, but one is already waiting."
+                        );
+                    } else {
+                        log::warn!(
+                            "Expected no visualizer because --visualizer was not passed as an cli argument."
+                        );
+                    }
+                }
             }
-            if cli.thinker == waiting_thinkers.len() && cli.thinker == waiting_forks.len() {
-                notify_entities(waiting_thinkers, waiting_forks, &transceiver, cli.tokens);
+            if cli.thinker == waiting_thinkers.len()
+                && cli.thinker == waiting_forks.len()
+                && (!cli.visualizer || waiting_visualizer.is_some())
+            {
+                notify_entities(
+                    waiting_thinkers,
+                    waiting_forks,
+                    waiting_visualizer,
+                    &transceiver,
+                    cli.tokens,
+                );
                 log::info!("Notified all queued entities. Shutting down");
                 return;
             }
@@ -71,6 +101,7 @@ fn main() {
 fn notify_entities(
     mut thinkers: Vec<ThinkerRef>,
     mut forks: Vec<ForkRef>,
+    visualizer: Option<VisualizerRef>,
     transceiver: &Transceiver,
     amount_tokens: usize,
 ) {
@@ -100,4 +131,12 @@ fn notify_entities(
         });
         transceiver.send(message, &thinkers[i].address);
     }
+    println!("{:#?}", visualizer);
+    if let Some(visualizer) = visualizer {
+        transceiver.send(
+            VisualizerMessages::Init { thinkers, forks },
+            &visualizer.address,
+        );
+    }
+    sleep(Duration::from_secs(1000));
 }

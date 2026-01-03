@@ -8,6 +8,7 @@ use crate::lib::utils::Id;
 pub enum InitMessages {
     ForkRequest(Id<Fork>),
     ThinkerRequest(Id<Thinker>),
+    VisualizerRequest,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
@@ -28,4 +29,34 @@ pub enum ThinkerMessage {
 pub enum ForkMessages {
     Take,
     Release,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug)]
+pub enum VisualizerForkState {
+    Unused,
+    Used,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug)]
+pub enum VisualizerThinkerState {
+    Thinking,
+    Hungry,
+    WaitingForForks,
+    Eating,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug)]
+pub enum VisualizerMessages {
+    Init {
+        thinkers: Vec<ThinkerRef>,
+        forks: Vec<ForkRef>,
+    },
+    ForkStateChanged {
+        fork: ForkRef,
+        state: VisualizerForkState,
+    },
+    ThinkerStateChanged {
+        thinker: ThinkerRef,
+        state: VisualizerThinkerState,
+    },
 }

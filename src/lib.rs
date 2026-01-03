@@ -6,6 +6,7 @@ pub mod lib {
     pub mod thinker;
     pub mod transceiver;
     pub mod utils;
+    pub mod visualizer;
 }
 
 pub const TICK_INTERVAL: Duration = Duration::from_millis(50);
