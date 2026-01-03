@@ -16,6 +16,9 @@ pub struct ThinkerCli {
 }
 
 fn main() {
+    unsafe {
+        std::env::set_var("DROP_TOKEN_PCT", "10");
+    }
     init_logger();
     let cli = ThinkerCli::parse();
     let socket = UdpSocket::bind(cli.address).unwrap();
@@ -44,7 +47,6 @@ fn main() {
     let mut thinker: Thinker = Thinker::new(
         id.clone(),
         transceiver,
-        unhandled_messages,
         init_params.forks,
         init_params.next_thinker,
         init_params.owns_token,

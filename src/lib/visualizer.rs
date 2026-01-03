@@ -5,9 +5,8 @@ use rkyv::{Archive, Deserialize, Serialize};
 use crate::lib::{
     fork::ForkRef,
     messages::{VisualizerForkState, VisualizerMessages, VisualizerThinkerState},
-    thinker::{Thinker, ThinkerRef},
+    thinker::ThinkerRef,
     transceiver::Transceiver,
-    utils::Id,
 };
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
