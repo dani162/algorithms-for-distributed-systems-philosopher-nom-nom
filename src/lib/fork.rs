@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerForkState, VisualizerMessages};
+use crate::lib::thinker::ThinkerRef;
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::lib::visualizer::VisualizerRef;
@@ -17,14 +18,14 @@ pub struct ForkRef {
 #[derive(Debug)]
 enum ForkState {
     Unused,
-    Used,
+    Used(ThinkerRef),
 }
 
 impl From<&ForkState> for VisualizerForkState {
     fn from(val: &ForkState) -> Self {
         match val {
             ForkState::Unused => VisualizerForkState::Unused,
-            ForkState::Used => VisualizerForkState::Used,
+            ForkState::Used(thinker) => VisualizerForkState::Used(thinker.id.clone()),
         }
     }
 }
@@ -33,7 +34,7 @@ impl From<&ForkState> for VisualizerForkState {
 pub struct Fork {
     pub id: Id<Fork>,
     state: ForkState,
-    queue: VecDeque<SocketAddr>,
+    queue: VecDeque<ThinkerRef>,
     transceiver: Transceiver,
     visualizer: Option<VisualizerRef>,
 }
@@ -52,15 +53,21 @@ impl Fork {
     pub fn tick(&mut self, buffer: &mut [u8]) {
         while let Some((message, entity)) = self.transceiver.receive::<ForkMessages>(buffer) {
             match message {
-                ForkMessages::Take => match self.state {
+                ForkMessages::Take(thinker_id) => match &self.state {
                     ForkState::Unused => {
-                        self.state = ForkState::Used;
+                        self.state = ForkState::Used(ThinkerRef {
+                            id: thinker_id,
+                            address: entity,
+                        });
                         self.transceiver
                             .send(ThinkerMessage::TakeForkAccepted(self.id.clone()), &entity);
                         log::info!("Fork taken by {entity}");
                     }
-                    ForkState::Used => {
-                        self.queue.push_back(entity);
+                    ForkState::Used(_) => {
+                        self.queue.push_back(ThinkerRef {
+                            id: thinker_id,
+                            address: entity,
+                        });
                         log::info!("Queued Thinker {entity} at position {}", self.queue.len());
                     }
                 },
@@ -68,16 +75,20 @@ impl Fork {
                     ForkState::Unused => {
                         log::error!("Got release message from {entity}, but is currently not used");
                     }
-                    ForkState::Used => {
+                    ForkState::Used(_) => {
                         if self.queue.is_empty() {
                             self.state = ForkState::Unused;
                             log::info!("Fork released by {entity}");
                         } else {
                             let next = self.queue.pop_front().unwrap();
-                            self.transceiver
-                                .send(ThinkerMessage::TakeForkAccepted(self.id.clone()), &next);
+                            self.transceiver.send(
+                                ThinkerMessage::TakeForkAccepted(self.id.clone()),
+                                &next.address,
+                            );
                             log::info!(
-                                "Fork released by {entity}, fork given to {next}, {} thinkers in queue remaining",
+                                "Fork released by {}, fork given to {}, {} thinkers in queue remaining",
+                                entity,
+                                next.address,
                                 self.queue.len()
                             );
                         }

@@ -1,11 +1,8 @@
 use std::net::{SocketAddr, UdpSocket};
-use std::thread::sleep;
-use std::time::Duration;
 
 use clap::Parser;
-use philosopher_nom_nom_ring::lib::messages::{
-    ForkMessages, InitMessages, InitThinkerParams, VisualizerMessages,
-};
+use philosopher_nom_nom_ring::lib::messages::VisualizerMessages;
+use philosopher_nom_nom_ring::lib::messages::{ForkMessages, InitMessages, InitThinkerParams};
 use philosopher_nom_nom_ring::lib::thinker::ThinkerRef;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
 use philosopher_nom_nom_ring::lib::visualizer::VisualizerRef;
@@ -69,6 +66,7 @@ fn main() {
                 InitMessages::VisualizerRequest => {
                     if cli.visualizer && waiting_visualizer.is_none() {
                         let _ = waiting_visualizer.insert(VisualizerRef { address: entity });
+                        log::info!("Set visualizer {entity}");
                     } else if waiting_visualizer.is_some() {
                         log::warn!(
                             "Additional visualizer {entity} tried to connect, but one is already waiting."
@@ -135,12 +133,10 @@ fn notify_entities(
     forks.iter().for_each(|fork| {
         transceiver.send_reliable(ForkMessages::Init(visualizer.clone()), &fork.address);
     });
-    println!("{:#?}", visualizer);
     if let Some(visualizer) = visualizer {
         transceiver.send_reliable(
             VisualizerMessages::Init { thinkers, forks },
             &visualizer.address,
         );
     }
-    sleep(Duration::from_secs(1000));
 }

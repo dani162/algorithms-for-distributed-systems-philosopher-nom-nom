@@ -42,7 +42,7 @@ fn main() {
     };
 
     let mut thinker: Thinker = Thinker::new(
-        id,
+        id.clone(),
         transceiver,
         unhandled_messages,
         init_params.forks,
@@ -51,7 +51,7 @@ fn main() {
         init_params.visualizer,
     );
 
-    log::info!("Started thinker {}", local_address);
+    log::info!("Started thinker {} {}", local_address, id);
     loop {
         thinker.tick(&mut buffer);
         thinker.update_visualizer();

@@ -2,7 +2,7 @@
 
 NUM_FORKS=$1
 INIT_SERVER_ADDRESS=127.0.0.1:3333
-START_FORK_COMMAND="./target/release/fork 0.0.0.0:0 --init-server $INIT_SERVER_ADDRESS"
+START_FORK_COMMAND="./target/release/fork 0.0.0.0:0 --init-server $INIT_SERVER_ADDRESS || sleep 100"
 
 cargo build --release
 ptyxis --new-window -- bash -c "

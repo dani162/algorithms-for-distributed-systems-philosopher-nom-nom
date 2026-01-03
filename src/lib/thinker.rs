@@ -97,7 +97,7 @@ impl Thinker {
     }
 
     pub fn handle_message(&mut self, message: ThinkerMessage, entity: SocketAddr) {
-        match message {
+        match &message {
             ThinkerMessage::Init { .. } => {
                 log::error!("Already initialized but got init message from {entity}");
             }
@@ -126,7 +126,7 @@ impl Thinker {
                         .forks
                         .iter()
                         .zip(&mut *forks_state)
-                        .find(|(fork, _)| fork.id.eq(&id))
+                        .find(|(fork, _)| fork.id.eq(id))
                         .unwrap();
                     match waiting_fork_state {
                         WaitingForkState::Waiting => {
@@ -144,7 +144,7 @@ impl Thinker {
                     // TODO: This could happen if thinker node crashes restarts and afterwards gets
                     //  the response from the fork. This should be handled with proper error
                     //  handling. Maybe just tell the fork to release instantly.
-                    panic!("Unescpected token accpeted message");
+                    panic!("Unexpected token accpeted message. {:?}", &message);
                 }
             },
         }
@@ -172,7 +172,8 @@ impl Thinker {
                     }
                     HungryTokenState::TokenReceived => {
                         self.forks.iter().for_each(|fork| {
-                            self.transceiver.send(ForkMessages::Take, &fork.address);
+                            self.transceiver
+                                .send(ForkMessages::Take(self.id.clone()), &fork.address);
                         });
                         self.state = ThinkerState::WaitingForForks(
                             self.forks.clone().map(|_| WaitingForkState::Waiting),

@@ -41,8 +41,8 @@ fn main() {
         sleep(TICK_INTERVAL);
     };
 
-    let mut fork = Fork::new(id, transceiver, visualizer);
-    log::info!("Started fork {local_address}");
+    let mut fork = Fork::new(id.clone(), transceiver, visualizer);
+    log::info!("Started fork {local_address} {id}");
     loop {
         fork.tick(&mut buffer);
         fork.update_visualizer();

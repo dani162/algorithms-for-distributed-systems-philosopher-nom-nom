@@ -5,8 +5,9 @@ use rkyv::{Archive, Deserialize, Serialize};
 use crate::lib::{
     fork::ForkRef,
     messages::{VisualizerForkState, VisualizerMessages, VisualizerThinkerState},
-    thinker::ThinkerRef,
+    thinker::{Thinker, ThinkerRef},
     transceiver::Transceiver,
+    utils::Id,
 };
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
@@ -67,17 +68,61 @@ impl Visualizer {
 
     pub fn print_state(&self) {
         print!("\x1B[2J\x1B[1;1H");
-        self.thinkers
-            .iter()
-            .zip(&self.forks)
-            .enumerate()
-            .for_each(|(index, (thinker, fork))| {
-                println!("T{} - {:?}", index, thinker.1);
-                println!();
-                println!("F{} - {:?}", index, fork.1);
-                if index < self.forks.len() - 1 {
-                    println!()
+        self.thinkers.iter().zip(&self.forks).for_each(
+            |((thinker, thinker_state), (fork, fork_state))| {
+                let thinker_state_char = match thinker_state {
+                    VisualizerThinkerState::Thinking => "🤔",
+                    VisualizerThinkerState::Hungry => "😩",
+                    VisualizerThinkerState::WaitingForForks => "💤",
+                    VisualizerThinkerState::Eating => "🧀",
+                };
+                let visualizer_state_str = match thinker_state {
+                    VisualizerThinkerState::Thinking => "Thinking",
+                    VisualizerThinkerState::Hungry => "Hungry",
+                    VisualizerThinkerState::WaitingForForks => "WaitingForForks",
+                    VisualizerThinkerState::Eating => "Eating",
+                };
+                println!(
+                    "{} [{:-^15}] {} {}",
+                    thinker_state_char, visualizer_state_str, thinker.address, thinker.id.value
+                );
+
+                enum UsedBy {
+                    Above(Id<Thinker>),
+                    Bellow(Id<Thinker>),
                 }
-            });
+
+                let fork_side = match fork_state {
+                    VisualizerForkState::Unused => None,
+                    VisualizerForkState::Used(id) if id.eq(&thinker.id) => {
+                        Some(UsedBy::Above(id.clone()))
+                    }
+                    // should not happen that is it not the next one if order is not messed up
+                    VisualizerForkState::Used(id) => Some(UsedBy::Bellow(id.clone())),
+                };
+                match &fork_side {
+                    Some(UsedBy::Above(id)) => println!("  ⬆️ ({})", id.value),
+                    _ => println!(),
+                };
+
+                let fork_state_char = match fork_state {
+                    VisualizerForkState::Unused => "🔓",
+                    VisualizerForkState::Used(_) => "🔒",
+                };
+                let fork_state_str = match fork_state {
+                    VisualizerForkState::Unused => "Unused",
+                    VisualizerForkState::Used(_) => "Used",
+                };
+                println!(
+                    "  {} [{:-^15}] {} {}",
+                    fork_state_char, fork_state_str, fork.address, fork.id.value
+                );
+
+                match &fork_side {
+                    Some(UsedBy::Bellow(id)) => println!("  ⬇️ ({})", id.value),
+                    _ => println!(),
+                };
+            },
+        );
     }
 }

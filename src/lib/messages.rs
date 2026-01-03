@@ -30,14 +30,14 @@ pub enum ThinkerMessage {
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ForkMessages {
     Init(Option<VisualizerRef>),
-    Take,
+    Take(Id<Thinker>),
     Release,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum VisualizerForkState {
     Unused,
-    Used,
+    Used(Id<Thinker>),
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
