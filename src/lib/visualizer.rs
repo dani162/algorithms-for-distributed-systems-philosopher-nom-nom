@@ -71,20 +71,18 @@ impl Visualizer {
         self.thinkers.iter().zip(&self.forks).for_each(
             |((thinker, thinker_state), (fork, fork_state))| {
                 enum UsedBy {
-                    Above(Id<Thinker>),
-                    Bellow(Id<Thinker>),
+                    Above,
+                    Bellow,
                 }
 
                 let fork_side = match fork_state {
                     VisualizerForkState::Unused => None,
-                    VisualizerForkState::Used(id) if id.eq(&thinker.id) => {
-                        Some(UsedBy::Above(id.clone()))
-                    }
+                    VisualizerForkState::Used(id) if id.eq(&thinker.id) => Some(UsedBy::Above),
                     // should not happen that is it not the next one if order is not messed up
-                    VisualizerForkState::Used(id) => Some(UsedBy::Bellow(id.clone())),
+                    VisualizerForkState::Used(_) => Some(UsedBy::Bellow),
                 };
                 match &fork_side {
-                    Some(UsedBy::Bellow(id)) => println!("  ⬆️ ({})", id.value),
+                    Some(UsedBy::Bellow) => println!("⬆️"),
                     _ => println!(),
                 };
 
@@ -96,17 +94,17 @@ impl Visualizer {
                     VisualizerForkState::Unused => "Unused",
                     VisualizerForkState::Used(_) => "Used",
                 };
+                // Fork
                 println!(
-                    "  {} [{:-^15}] {} {}",
-                    fork_state_char, fork_state_str, fork.address, fork.id.value
+                    "🍴 [{}][{:-^15}] {}",
+                    fork_state_char, fork_state_str, fork.id
                 );
 
                 match &fork_side {
-                    Some(UsedBy::Above(id)) => println!("  ⬇️ ({})", id.value),
+                    Some(UsedBy::Above) => println!("⬇️"),
                     _ => println!(),
                 };
 
-                // Thinker
                 let thinker_state_char = match thinker_state {
                     VisualizerThinkerState::Thinking => "🤔",
                     VisualizerThinkerState::Hungry => "😩",
@@ -119,9 +117,10 @@ impl Visualizer {
                     VisualizerThinkerState::WaitingForForks => "WaitingForForks",
                     VisualizerThinkerState::Eating => "Eating",
                 };
+                // Thinker
                 println!(
-                    "{} [{:-^15}] {} {}",
-                    thinker_state_char, visualizer_state_str, thinker.address, thinker.id.value
+                    "🧐 [{}][{:-^15}] {}",
+                    thinker_state_char, visualizer_state_str, thinker.id.value
                 );
             },
         );
