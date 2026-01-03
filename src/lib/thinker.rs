@@ -6,9 +6,12 @@ use rand::rngs::ThreadRng;
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::lib::fork::ForkRef;
-use crate::lib::messages::{ForkMessages, ThinkerMessage};
+use crate::lib::messages::{
+    ForkMessages, ThinkerMessage, VisualizerMessages, VisualizerThinkerState,
+};
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
+use crate::lib::visualizer::VisualizerRef;
 use crate::{MAX_EATING_TIME, MAX_THINKING_TIME, MIN_EATING_TIME, MIN_THINKING_TIME};
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
@@ -37,14 +40,26 @@ enum ThinkerState {
     Eating { stop_eating_at: SystemTime },
 }
 
+impl From<&ThinkerState> for VisualizerThinkerState {
+    fn from(value: &ThinkerState) -> Self {
+        match value {
+            ThinkerState::Thinking { .. } => VisualizerThinkerState::Thinking,
+            ThinkerState::Hungry { .. } => VisualizerThinkerState::Hungry,
+            ThinkerState::WaitingForForks(_) => VisualizerThinkerState::WaitingForForks,
+            ThinkerState::Eating { .. } => VisualizerThinkerState::Eating,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Thinker {
-    _id: Id<Thinker>,
+    id: Id<Thinker>,
     transceiver: Transceiver,
     state: ThinkerState,
     forks: [ForkRef; 2],
     next_thinker: ThinkerRef,
     rng: ThreadRng,
+    visualizer: Option<VisualizerRef>,
 }
 impl Thinker {
     pub fn new(
@@ -54,6 +69,7 @@ impl Thinker {
         forks: [ForkRef; 2],
         next_thinker: ThinkerRef,
         has_token: bool,
+        visualizer: Option<VisualizerRef>,
     ) -> Self {
         let mut rng = rand::rng();
 
@@ -61,7 +77,7 @@ impl Thinker {
             transceiver.send(ThinkerMessage::Token, &next_thinker.address);
         }
         let mut thinker = Self {
-            _id: id,
+            id,
             transceiver,
             state: ThinkerState::Thinking {
                 stop_thinking_at: SystemTime::now()
@@ -70,6 +86,7 @@ impl Thinker {
             forks,
             next_thinker,
             rng,
+            visualizer,
         };
         unhandled_messages
             .into_iter()
@@ -81,7 +98,7 @@ impl Thinker {
 
     pub fn handle_message(&mut self, message: ThinkerMessage, entity: SocketAddr) {
         match message {
-            ThinkerMessage::Init(_) => {
+            ThinkerMessage::Init { .. } => {
                 log::error!("Already initialized but got init message from {entity}");
             }
             ThinkerMessage::Token => match &mut self.state {
@@ -207,6 +224,18 @@ impl Thinker {
             self.handle_message(message, entity);
         }
         self.update_state();
+    }
+
+    pub fn update_visualizer(&self) {
+        if let Some(visualizer) = &self.visualizer {
+            self.transceiver.send(
+                VisualizerMessages::ThinkerStateChanged {
+                    id: self.id.clone(),
+                    state: (&self.state).into(),
+                },
+                &visualizer.address,
+            );
+        }
     }
 }
 

@@ -3,9 +3,10 @@ use std::net::SocketAddr;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::lib::messages::{ForkMessages, ThinkerMessage};
+use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerForkState, VisualizerMessages};
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
+use crate::lib::visualizer::VisualizerRef;
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct ForkRef {
@@ -19,21 +20,32 @@ enum ForkState {
     Used,
 }
 
+impl From<&ForkState> for VisualizerForkState {
+    fn from(val: &ForkState) -> Self {
+        match val {
+            ForkState::Unused => VisualizerForkState::Unused,
+            ForkState::Used => VisualizerForkState::Used,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Fork {
     pub id: Id<Fork>,
     state: ForkState,
     queue: VecDeque<SocketAddr>,
     transceiver: Transceiver,
+    visualizer: Option<VisualizerRef>,
 }
 
 impl Fork {
-    pub fn new(id: Id<Fork>, transceiver: Transceiver) -> Self {
+    pub fn new(id: Id<Fork>, transceiver: Transceiver, visualizer: Option<VisualizerRef>) -> Self {
         Self {
             id,
             state: ForkState::Unused,
             queue: VecDeque::new(),
             transceiver,
+            visualizer,
         }
     }
 
@@ -71,7 +83,22 @@ impl Fork {
                         }
                     }
                 },
+                ForkMessages::Init(_) => {
+                    log::error!("Already initialized but got init message from {entity}");
+                }
             }
+        }
+    }
+
+    pub fn update_visualizer(&self) {
+        if let Some(visualizer) = &self.visualizer {
+            self.transceiver.send(
+                VisualizerMessages::ForkStateChanged {
+                    id: self.id.clone(),
+                    state: (&self.state).into(),
+                },
+                &visualizer.address,
+            );
         }
     }
 }

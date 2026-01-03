@@ -48,17 +48,17 @@ impl Visualizer {
             VisualizerMessages::Init { .. } => {
                 log::error!("Already initialized but got init message from {entity}");
             }
-            VisualizerMessages::ForkStateChanged { fork, state } => {
+            VisualizerMessages::ForkStateChanged { id, state } => {
                 self.forks
                     .iter_mut()
-                    .find(|(el, _)| el.id.eq(&fork.id))
+                    .find(|(fork, _)| fork.id.eq(&id))
                     .unwrap()
                     .1 = state;
             }
-            VisualizerMessages::ThinkerStateChanged { thinker, state } => {
+            VisualizerMessages::ThinkerStateChanged { id, state } => {
                 self.thinkers
                     .iter_mut()
-                    .find(|(el, _)| el.id.eq(&thinker.id))
+                    .find(|(thinker, _)| thinker.id.eq(&id))
                     .unwrap()
                     .1 = state;
             }

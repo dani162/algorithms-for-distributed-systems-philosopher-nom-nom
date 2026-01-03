@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use philosopher_nom_nom_ring::lib::messages::{
-    InitMessages, InitThinkerParams, VisualizerMessages,
+    ForkMessages, InitMessages, InitThinkerParams, VisualizerMessages,
 };
 use philosopher_nom_nom_ring::lib::thinker::ThinkerRef;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
@@ -128,12 +128,16 @@ fn notify_entities(
             owns_token,
             forks: [forks[i].clone(), next_fork],
             next_thinker,
+            visualizer: visualizer.clone(),
         });
-        transceiver.send(message, &thinkers[i].address);
+        transceiver.send_reliable(message, &thinkers[i].address);
     }
+    forks.iter().for_each(|fork| {
+        transceiver.send_reliable(ForkMessages::Init(visualizer.clone()), &fork.address);
+    });
     println!("{:#?}", visualizer);
     if let Some(visualizer) = visualizer {
-        transceiver.send(
+        transceiver.send_reliable(
             VisualizerMessages::Init { thinkers, forks },
             &visualizer.address,
         );

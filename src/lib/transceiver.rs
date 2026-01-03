@@ -17,7 +17,7 @@ impl Transceiver {
         Self { socket }
     }
 
-    pub fn send<T>(&self, message: T, to: &SocketAddr)
+    pub fn send_reliable<T>(&self, message: T, to: &SocketAddr)
     where
         T: for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rkyv::rancor::Error>>
             + Archive
@@ -27,6 +27,17 @@ impl Transceiver {
     {
         let message_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&message).unwrap();
         self.socket.send_to(&message_bytes, to).unwrap();
+    }
+
+    pub fn send<T>(&self, message: T, to: &SocketAddr)
+    where
+        T: for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rkyv::rancor::Error>>
+            + Archive
+            + std::fmt::Debug,
+        T::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
+            + Deserialize<T, Strategy<Pool, rkyv::rancor::Error>>,
+    {
+        self.send_reliable(message, to);
     }
 
     pub fn receive<T>(&self, buffer: &mut [u8]) -> Option<(T, SocketAddr)>

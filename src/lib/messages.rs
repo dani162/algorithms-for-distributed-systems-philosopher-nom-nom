@@ -3,6 +3,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 use crate::lib::fork::{Fork, ForkRef};
 use crate::lib::thinker::{Thinker, ThinkerRef};
 use crate::lib::utils::Id;
+use crate::lib::visualizer::VisualizerRef;
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum InitMessages {
@@ -16,6 +17,7 @@ pub struct InitThinkerParams {
     pub owns_token: bool,
     pub forks: [ForkRef; 2],
     pub next_thinker: ThinkerRef,
+    pub visualizer: Option<VisualizerRef>,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
@@ -27,6 +29,7 @@ pub enum ThinkerMessage {
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ForkMessages {
+    Init(Option<VisualizerRef>),
     Take,
     Release,
 }
@@ -52,11 +55,11 @@ pub enum VisualizerMessages {
         forks: Vec<ForkRef>,
     },
     ForkStateChanged {
-        fork: ForkRef,
+        id: Id<Fork>,
         state: VisualizerForkState,
     },
     ThinkerStateChanged {
-        thinker: ThinkerRef,
+        id: Id<Thinker>,
         state: VisualizerThinkerState,
     },
 }

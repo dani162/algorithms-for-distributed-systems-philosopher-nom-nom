@@ -23,7 +23,7 @@ fn main() {
     let cli = VisualizerCli::parse();
     let socket = UdpSocket::bind(cli.address).unwrap();
     let transceiver = Transceiver::new(socket);
-    transceiver.send(InitMessages::VisualizerRequest, &cli.init_server);
+    transceiver.send_reliable(InitMessages::VisualizerRequest, &cli.init_server);
 
     let mut buffer = [0; NETWORK_BUFFER_SIZE];
     let mut unhandled_messages = vec![];

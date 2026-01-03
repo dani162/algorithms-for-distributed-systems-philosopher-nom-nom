@@ -22,7 +22,7 @@ fn main() {
     let local_address = socket.local_addr().unwrap();
     let transceiver = Transceiver::new(socket);
     let id = Id::random();
-    transceiver.send(InitMessages::ThinkerRequest(id.clone()), &cli.init_server);
+    transceiver.send_reliable(InitMessages::ThinkerRequest(id.clone()), &cli.init_server);
 
     let mut buffer = [0; NETWORK_BUFFER_SIZE];
     let mut unhandled_messages = vec![];
@@ -48,11 +48,13 @@ fn main() {
         init_params.forks,
         init_params.next_thinker,
         init_params.owns_token,
+        init_params.visualizer,
     );
 
     log::info!("Started thinker {}", local_address);
     loop {
         thinker.tick(&mut buffer);
+        thinker.update_visualizer();
         sleep(TICK_INTERVAL);
     }
 }
