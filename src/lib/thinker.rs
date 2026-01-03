@@ -173,7 +173,6 @@ impl Thinker {
                     .and_then(|v| v.parse::<u8>().ok())
                     .unwrap_or(0)
                     .min(100);
-                println!("{}", drop_pct);
 
                 if drop_pct > 0 && self.rng.random_range(0..100) < drop_pct {
                     log::warn!(
