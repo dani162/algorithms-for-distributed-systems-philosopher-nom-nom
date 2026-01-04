@@ -3,7 +3,8 @@ use std::net::SocketAddr;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerForkState, VisualizerMessages};
+use crate::lib::messages::visualizer_messages::VisualizerForkState;
+use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerMessages};
 use crate::lib::thinker::ThinkerRef;
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};

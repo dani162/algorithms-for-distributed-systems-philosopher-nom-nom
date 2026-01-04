@@ -1,12 +1,14 @@
 use std::net::{SocketAddr, UdpSocket};
 
 use clap::Parser;
+use philosopher_nom_nom_ring::lib::fork::ForkRef;
+use philosopher_nom_nom_ring::lib::messages::ThinkerMessage;
 use philosopher_nom_nom_ring::lib::messages::VisualizerMessages;
-use philosopher_nom_nom_ring::lib::messages::{ForkMessages, InitMessages, InitThinkerParams};
+use philosopher_nom_nom_ring::lib::messages::thinker_messages::InitThinkerParams;
+use philosopher_nom_nom_ring::lib::messages::{ForkMessages, InitMessages};
 use philosopher_nom_nom_ring::lib::thinker::ThinkerRef;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
 use philosopher_nom_nom_ring::lib::visualizer::VisualizerRef;
-use philosopher_nom_nom_ring::lib::{fork::ForkRef, messages::ThinkerMessage};
 use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, init_logger};
 use rand::{rng, seq::SliceRandom};
 

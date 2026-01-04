@@ -6,9 +6,8 @@ use rand::rngs::ThreadRng;
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::lib::fork::ForkRef;
-use crate::lib::messages::{
-    ForkMessages, ThinkerMessage, VisualizerMessages, VisualizerThinkerState,
-};
+use crate::lib::messages::visualizer_messages::VisualizerThinkerState;
+use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerMessages};
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::lib::visualizer::VisualizerRef;

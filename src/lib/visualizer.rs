@@ -2,13 +2,11 @@ use std::net::SocketAddr;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::lib::{
-    fork::ForkRef,
-    messages::{VisualizerForkState, VisualizerMessages, VisualizerThinkerState},
-    thinker::{Thinker, ThinkerRef},
-    transceiver::Transceiver,
-    utils::Id,
-};
+use crate::lib::fork::ForkRef;
+use crate::lib::messages::VisualizerMessages;
+use crate::lib::messages::visualizer_messages::{VisualizerForkState, VisualizerThinkerState};
+use crate::lib::thinker::ThinkerRef;
+use crate::lib::transceiver::Transceiver;
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct VisualizerRef {
