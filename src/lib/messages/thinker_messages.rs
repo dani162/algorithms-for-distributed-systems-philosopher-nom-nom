@@ -9,6 +9,7 @@ use crate::lib::visualizer::VisualizerRef;
 pub enum ThinkerMessage {
     Init(InitThinkerParams),
     TakeForkAccepted(Id<Fork>),
+    ForkAlive(Id<Fork>),
     Token,
 }
 

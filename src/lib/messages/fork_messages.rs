@@ -8,5 +8,7 @@ use crate::lib::visualizer::VisualizerRef;
 pub enum ForkMessages {
     Init(Option<VisualizerRef>),
     Take(Id<Thinker>),
+    /// Used to keep the lock alive
+    KeepAlive(Id<Thinker>),
     Release,
 }

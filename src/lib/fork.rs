@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::time::Instant;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::KEEP_ALIVE_TIMEOUT;
 use crate::lib::messages::visualizer_messages::VisualizerForkState;
 use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerMessages};
 use crate::lib::thinker::ThinkerRef;
@@ -19,23 +21,32 @@ pub struct ForkRef {
 #[derive(Debug)]
 enum ForkState {
     Unused,
-    Used(ThinkerRef),
+    Used {
+        thinker: ThinkerRef,
+        last_seen_at: Instant,
+    },
 }
 
 impl From<&ForkState> for VisualizerForkState {
     fn from(val: &ForkState) -> Self {
         match val {
             ForkState::Unused => VisualizerForkState::Unused,
-            ForkState::Used(thinker) => VisualizerForkState::Used(thinker.id.clone()),
+            ForkState::Used { thinker, .. } => VisualizerForkState::Used(thinker.id.clone()),
         }
     }
+}
+
+#[derive(Debug)]
+struct QueuedThinker {
+    last_seen_at: Instant,
+    thinker: ThinkerRef,
 }
 
 #[derive(Debug)]
 pub struct Fork {
     pub id: Id<Fork>,
     state: ForkState,
-    queue: VecDeque<ThinkerRef>,
+    queue: VecDeque<QueuedThinker>,
     transceiver: Transceiver,
     visualizer: Option<VisualizerRef>,
 }
@@ -53,51 +64,91 @@ impl Fork {
 
     pub fn tick(&mut self, buffer: &mut [u8]) {
         while let Some((message, entity)) = self.transceiver.receive::<ForkMessages>(buffer) {
-            match message {
-                ForkMessages::Take(thinker_id) => match &self.state {
+            self.handle_message(message, entity);
+        }
+        self.update_state();
+    }
+
+    pub fn handle_message(&mut self, message: ForkMessages, entity: SocketAddr) {
+        match message {
+            ForkMessages::Take(thinker_id) => {
+                self.queue.push_back(QueuedThinker {
+                    last_seen_at: Instant::now(),
+                    thinker: ThinkerRef {
+                        id: thinker_id,
+                        address: entity,
+                    },
+                });
+                log::info!("Queued Thinker {entity} at position {}", self.queue.len());
+            }
+            ForkMessages::KeepAlive(id) => {
+                match &mut self.state {
                     ForkState::Unused => {
-                        self.state = ForkState::Used(ThinkerRef {
-                            id: thinker_id,
-                            address: entity,
-                        });
-                        self.transceiver
-                            .send(ThinkerMessage::TakeForkAccepted(self.id.clone()), &entity);
-                        log::info!("Fork taken by {entity}");
+                        log::warn!(
+                            "Got keep alive from {entity}, but fork is currently not in use"
+                        );
                     }
-                    ForkState::Used(_) => {
-                        self.queue.push_back(ThinkerRef {
-                            id: thinker_id,
-                            address: entity,
-                        });
-                        log::info!("Queued Thinker {entity} at position {}", self.queue.len());
-                    }
-                },
-                ForkMessages::Release => match self.state {
-                    ForkState::Unused => {
-                        log::error!("Got release message from {entity}, but is currently not used");
-                    }
-                    ForkState::Used(_) => {
-                        if self.queue.is_empty() {
-                            self.state = ForkState::Unused;
-                            log::info!("Fork released by {entity}");
-                        } else {
-                            let next = self.queue.pop_front().unwrap();
-                            self.state = ForkState::Used(next.clone());
-                            self.transceiver.send(
-                                ThinkerMessage::TakeForkAccepted(self.id.clone()),
-                                &next.address,
-                            );
-                            log::info!(
-                                "Fork released by {}, fork given to {}, {} thinkers in queue remaining",
-                                entity,
-                                next.address,
-                                self.queue.len()
+                    ForkState::Used {
+                        thinker,
+                        last_seen_at,
+                    } => {
+                        if thinker.id.eq(&id) {
+                            *last_seen_at = Instant::now();
+                            self.transceiver
+                                .send(ThinkerMessage::ForkAlive(self.id.clone()), &entity);
+                        }
+                        // TODO: here is case needed that sets keep alive for queued entites
+                        //  and responds to those
+                        else {
+                            log::warn!(
+                                "Got keep alive from {entity}, but fork is currently used by {}",
+                                thinker.address
                             );
                         }
                     }
-                },
-                ForkMessages::Init(_) => {
-                    log::error!("Already initialized but got init message from {entity}");
+                };
+            }
+            ForkMessages::Release => match self.state {
+                ForkState::Used { .. } => {
+                    self.state = ForkState::Unused;
+                    log::info!("Fork released by {entity}");
+                }
+                ForkState::Unused => {
+                    log::error!("Got release message from {entity}, but is currently not used");
+                }
+            },
+            ForkMessages::Init(_) => {
+                log::error!("Already initialized but got init message from {entity}");
+            }
+        }
+    }
+
+    pub fn update_state(&mut self) {
+        match &self.state {
+            ForkState::Unused => {
+                if let Some(next) = self.queue.pop_front() {
+                    self.state = ForkState::Used {
+                        thinker: next.thinker.clone(),
+                        last_seen_at: next.last_seen_at,
+                    };
+                    self.transceiver.send(
+                        ThinkerMessage::TakeForkAccepted(self.id.clone()),
+                        &next.thinker.address,
+                    );
+                    log::info!("Fork taken by {}", next.thinker.address);
+                }
+            }
+            ForkState::Used {
+                thinker,
+                last_seen_at,
+            } => {
+                if last_seen_at.elapsed() > KEEP_ALIVE_TIMEOUT {
+                    let thinker = thinker.clone();
+                    log::warn!(
+                        "No keep alive from thinker {}. Releasing fork access",
+                        thinker.address
+                    );
+                    self.state = ForkState::Unused;
                 }
             }
         }

@@ -1,7 +1,10 @@
 use std::net::SocketAddr;
+use std::time::Instant;
 
+use colored::{ColoredString, Colorize};
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::KEEP_ALIVE_TIMEOUT;
 use crate::lib::fork::ForkRef;
 use crate::lib::messages::VisualizerMessages;
 use crate::lib::messages::visualizer_messages::{VisualizerForkState, VisualizerThinkerState};
@@ -14,10 +17,24 @@ pub struct VisualizerRef {
 }
 
 #[derive(Debug)]
+struct ThinkerState {
+    thinker: ThinkerRef,
+    visualizer_thinker_state: VisualizerThinkerState,
+    last_seen: Instant,
+}
+
+#[derive(Debug)]
+struct ForkState {
+    fork: ForkRef,
+    visualizer_fork_state: VisualizerForkState,
+    last_seen: Instant,
+}
+
+#[derive(Debug)]
 pub struct Visualizer {
     transceiver: Transceiver,
-    thinkers: Vec<(ThinkerRef, VisualizerThinkerState)>,
-    forks: Vec<(ForkRef, VisualizerForkState)>,
+    thinkers: Vec<ThinkerState>,
+    forks: Vec<ForkState>,
 }
 
 impl Visualizer {
@@ -26,11 +43,19 @@ impl Visualizer {
             transceiver,
             thinkers: thinkers
                 .into_iter()
-                .map(|thinker| (thinker, VisualizerThinkerState::Thinking))
+                .map(|thinker| ThinkerState {
+                    thinker,
+                    visualizer_thinker_state: VisualizerThinkerState::Thinking,
+                    last_seen: Instant::now(),
+                })
                 .collect(),
             forks: forks
                 .into_iter()
-                .map(|fork| (fork, VisualizerForkState::Unused))
+                .map(|fork| ForkState {
+                    fork,
+                    visualizer_fork_state: VisualizerForkState::Unused,
+                    last_seen: Instant::now(),
+                })
                 .collect(),
         }
     }
@@ -48,79 +73,122 @@ impl Visualizer {
                 log::error!("Already initialized but got init message from {entity}");
             }
             VisualizerMessages::ForkStateChanged { id, state } => {
-                self.forks
+                let el = self
+                    .forks
                     .iter_mut()
-                    .find(|(fork, _)| fork.id.eq(&id))
-                    .unwrap()
-                    .1 = state;
+                    .find(|fork_state| fork_state.fork.id.eq(&id))
+                    .unwrap();
+                el.visualizer_fork_state = state;
+                el.last_seen = Instant::now();
             }
             VisualizerMessages::ThinkerStateChanged { id, state } => {
-                self.thinkers
+                let el = self
+                    .thinkers
                     .iter_mut()
-                    .find(|(thinker, _)| thinker.id.eq(&id))
-                    .unwrap()
-                    .1 = state;
+                    .find(|thinker_state| thinker_state.thinker.id.eq(&id))
+                    .unwrap();
+                el.visualizer_thinker_state = state;
+                el.last_seen = Instant::now();
             }
         }
     }
 
     pub fn print_state(&self) {
         print!("\x1B[2J\x1B[1;1H");
-        self.thinkers.iter().zip(&self.forks).for_each(
-            |((thinker, thinker_state), (fork, fork_state))| {
+        self.thinkers
+            .iter()
+            .zip(&self.forks)
+            .for_each(|(thinker_state, fork_state)| {
                 enum UsedBy {
                     Above,
                     Bellow,
                 }
 
-                let fork_side = match fork_state {
+                let fork_side = match &fork_state.visualizer_fork_state {
                     VisualizerForkState::Unused => None,
-                    VisualizerForkState::Used(id) if id.eq(&thinker.id) => Some(UsedBy::Above),
+                    VisualizerForkState::Used(id) if id.eq(&thinker_state.thinker.id) => {
+                        Some(UsedBy::Above)
+                    }
                     // should not happen that is it not the next one if order is not messed up
                     VisualizerForkState::Used(_) => Some(UsedBy::Bellow),
                 };
                 match &fork_side {
-                    Some(UsedBy::Bellow) => println!("⬆️"),
+                    Some(UsedBy::Bellow) if fork_state.last_seen.elapsed() < KEEP_ALIVE_TIMEOUT => {
+                        println!("⬆️")
+                    }
                     _ => println!(),
                 };
 
-                let fork_state_char = match fork_state {
+                let fork_state_char = match fork_state.visualizer_fork_state {
                     VisualizerForkState::Unused => "🔓",
                     VisualizerForkState::Used(_) => "🔒",
                 };
-                let fork_state_str = match fork_state {
+                let fork_state_str = match fork_state.visualizer_fork_state {
                     VisualizerForkState::Unused => "Unused",
                     VisualizerForkState::Used(_) => "Used",
                 };
                 // Fork
-                println!(
+                let message = format!(
                     "🍴 [{}][{:-^15}] {}",
-                    fork_state_char, fork_state_str, fork.id
+                    fork_state_char, fork_state_str, fork_state.fork.id
+                );
+                println!(
+                    "{}",
+                    match fork_state.last_seen.elapsed().cmp(&KEEP_ALIVE_TIMEOUT) {
+                        std::cmp::Ordering::Less | std::cmp::Ordering::Equal =>
+                            ColoredString::from(format!(
+                                "{} ({:?})",
+                                message,
+                                fork_state.last_seen.elapsed()
+                            )),
+                        std::cmp::Ordering::Greater => ColoredString::from(format!(
+                            "{} {}",
+                            message.strikethrough().dimmed(),
+                            "(dead)".red()
+                        )),
+                    }
                 );
 
                 match &fork_side {
-                    Some(UsedBy::Above) => println!("⬇️"),
+                    Some(UsedBy::Above) if fork_state.last_seen.elapsed() < KEEP_ALIVE_TIMEOUT => {
+                        println!("⬇️")
+                    }
                     _ => println!(),
                 };
 
-                let thinker_state_char = match thinker_state {
+                let thinker_state_char = match thinker_state.visualizer_thinker_state {
                     VisualizerThinkerState::Thinking => "🤔",
                     VisualizerThinkerState::Hungry => "😩",
                     VisualizerThinkerState::WaitingForForks => "💤",
                     VisualizerThinkerState::Eating => "🧀",
                 };
-                let visualizer_state_str = match thinker_state {
+                let visualizer_state_str = match thinker_state.visualizer_thinker_state {
                     VisualizerThinkerState::Thinking => "Thinking",
                     VisualizerThinkerState::Hungry => "Hungry",
                     VisualizerThinkerState::WaitingForForks => "WaitingForForks",
                     VisualizerThinkerState::Eating => "Eating",
                 };
+                let message = format!(
+                    "🧐 [{}][{:-^15}] {}",
+                    thinker_state_char, visualizer_state_str, thinker_state.thinker.id.value
+                );
                 // Thinker
                 println!(
-                    "🧐 [{}][{:-^15}] {}",
-                    thinker_state_char, visualizer_state_str, thinker.id.value
+                    "{}",
+                    match thinker_state.last_seen.elapsed().cmp(&KEEP_ALIVE_TIMEOUT) {
+                        std::cmp::Ordering::Less | std::cmp::Ordering::Equal =>
+                            ColoredString::from(format!(
+                                "{} ({:?})",
+                                message,
+                                thinker_state.last_seen.elapsed()
+                            )),
+                        std::cmp::Ordering::Greater => ColoredString::from(format!(
+                            "{} {}",
+                            message.strikethrough().dimmed(),
+                            "(dead)".red()
+                        )),
+                    }
                 );
-            },
-        );
+            });
     }
 }
