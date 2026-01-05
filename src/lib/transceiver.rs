@@ -54,4 +54,8 @@ impl Transceiver {
         let message = rkyv::from_bytes::<T, rkyv::rancor::Error>(&buffer[0..len]).unwrap();
         Some((message, entity))
     }
+
+    pub fn local_address(&self) -> SocketAddr {
+        self.socket.local_addr().unwrap()
+    }
 }

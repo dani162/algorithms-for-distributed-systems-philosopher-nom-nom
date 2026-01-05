@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 pub mod lib {
+    pub mod config;
     pub mod fork;
     pub mod messages;
     pub mod thinker;

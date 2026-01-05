@@ -42,6 +42,12 @@ struct QueuedThinker {
     thinker: ThinkerRef,
 }
 
+pub struct ForkInitParams {
+    pub id: Id<Fork>,
+    pub transceiver: Transceiver,
+    pub visualizer: Option<VisualizerRef>,
+}
+
 #[derive(Debug)]
 pub struct Fork {
     pub id: Id<Fork>,
@@ -52,14 +58,22 @@ pub struct Fork {
 }
 
 impl Fork {
-    pub fn new(id: Id<Fork>, transceiver: Transceiver, visualizer: Option<VisualizerRef>) -> Self {
+    pub fn new(init_params: ForkInitParams) -> Self {
         Self {
-            id,
+            id: init_params.id,
             state: ForkState::Unused,
             queue: VecDeque::new(),
-            transceiver,
-            visualizer,
+            transceiver: init_params.transceiver,
+            visualizer: init_params.visualizer,
         }
+    }
+
+    pub fn print_started(&self) {
+        log::info!(
+            "Started fork {} {}",
+            self.transceiver.local_address(),
+            self.id,
+        )
     }
 
     pub fn tick(&mut self, buffer: &mut [u8]) {
