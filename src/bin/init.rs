@@ -5,6 +5,7 @@ use philosopher_nom_nom_ring::lib::fork::ForkRef;
 use philosopher_nom_nom_ring::lib::messages::ThinkerMessage;
 use philosopher_nom_nom_ring::lib::messages::VisualizerMessages;
 use philosopher_nom_nom_ring::lib::messages::thinker_messages::InitThinkerParams;
+use philosopher_nom_nom_ring::lib::messages::thinker_messages::Token;
 use philosopher_nom_nom_ring::lib::messages::{ForkMessages, InitMessages};
 use philosopher_nom_nom_ring::lib::thinker::ThinkerRef;
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
@@ -86,12 +87,15 @@ fn main() {
                 && cli.thinker == waiting_forks.len()
                 && (!cli.visualizer || waiting_visualizer.is_some())
             {
+                let tokens = (0..cli.tokens)
+                    .map(|index| Token::create(waiting_thinkers[index].id.clone()))
+                    .collect();
                 notify_entities(
                     waiting_thinkers,
                     waiting_forks,
+                    tokens,
                     waiting_visualizer,
                     &transceiver,
-                    cli.tokens,
                     cli.next_thinkers_amount,
                 );
                 log::info!("Notified all queued entities. Shutting down");
@@ -104,17 +108,15 @@ fn main() {
 fn notify_entities(
     mut thinkers: Vec<ThinkerRef>,
     mut forks: Vec<ForkRef>,
+    tokens: Vec<Token>,
     visualizer: Option<VisualizerRef>,
     transceiver: &Transceiver,
-    amount_tokens: usize,
     amount_next_thinkers: usize,
 ) {
     thinkers.shuffle(&mut rng());
     forks.shuffle(&mut rng());
 
     for i in 0..thinkers.len() {
-        let owns_token = i < amount_tokens;
-
         let forks_of_thinker = (0..2)
             .map(|index| {
                 let next_index = (index + i) % forks.len();
@@ -131,11 +133,14 @@ fn notify_entities(
             })
             .collect();
 
+        let token = tokens.iter().find(|token| token.issuer.eq(&thinkers[i].id));
+
         let message = ThinkerMessage::Init(InitThinkerParams {
-            owns_token,
+            token: token.cloned(),
             forks: forks_of_thinker,
             next_thinkers,
             visualizer: visualizer.clone(),
+            available_tokens: tokens.iter().map(|token| token.into()).collect(),
         });
         transceiver.send_reliable(message, &thinkers[i].address);
     }

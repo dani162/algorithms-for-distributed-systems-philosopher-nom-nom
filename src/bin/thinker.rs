@@ -47,8 +47,9 @@ fn main() {
         unhandled_messages,
         init_params.forks,
         init_params.next_thinkers,
-        init_params.owns_token,
+        init_params.token,
         init_params.visualizer,
+        init_params.available_tokens,
     );
 
     log::info!("Started thinker {} {}", local_address, id);
