@@ -54,6 +54,7 @@ fn main() {
                 id: config.id,
                 visualizer: config.visualizer,
                 transceiver,
+                unhandled_messages,
             }
         }
         Commands::InitServer {
@@ -91,6 +92,7 @@ fn main() {
                 id,
                 visualizer,
                 transceiver,
+                unhandled_messages,
             }
         }
     };

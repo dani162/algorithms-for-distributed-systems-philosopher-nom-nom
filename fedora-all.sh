@@ -6,6 +6,8 @@ VISUALIZER_ADDRESS=127.0.0.1:3334
 INIT_SERVER_ADDRESS=127.0.0.1:3333
 START_THINKER_COMMAND="./target/release/init 127.0.0.1:3333 --thinker $NUM_THINKER --tokens $NUM_TOKENS --visualizer || sleep 100"
 
+rm -r ./config/
+mkdir ./config/
 cargo build --release
 ptyxis --new-window -- bash -c "$START_THINKER_COMMAND"
 sleep 0.5

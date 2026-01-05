@@ -46,6 +46,7 @@ pub struct ForkInitParams {
     pub id: Id<Fork>,
     pub transceiver: Transceiver,
     pub visualizer: Option<VisualizerRef>,
+    pub unhandled_messages: Vec<(ForkMessages, SocketAddr)>,
 }
 
 #[derive(Debug)]
@@ -59,13 +60,20 @@ pub struct Fork {
 
 impl Fork {
     pub fn new(init_params: ForkInitParams) -> Self {
-        Self {
+        let mut fork = Self {
             id: init_params.id,
             state: ForkState::Unused,
             queue: VecDeque::new(),
             transceiver: init_params.transceiver,
             visualizer: init_params.visualizer,
-        }
+        };
+        init_params
+            .unhandled_messages
+            .into_iter()
+            .for_each(|(message, entity)| {
+                fork.handle_message(message, entity);
+            });
+        fork
     }
 
     pub fn print_started(&self) {

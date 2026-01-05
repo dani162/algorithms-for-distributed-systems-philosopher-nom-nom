@@ -151,7 +151,7 @@ impl Thinker {
                             log::info!("Taken fork {}", entity.address);
                         }
                         ForkState::Taken => {
-                            panic!("Got fork, but i already own it")
+                            log::error!("Got fork, but i already own it");
                         }
                     }
                 }
