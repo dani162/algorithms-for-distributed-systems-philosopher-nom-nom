@@ -10,5 +10,5 @@ pub enum ForkMessages {
     Take(Id<Thinker>),
     /// Used to keep the lock alive
     KeepAlive(Id<Thinker>),
-    Release,
+    Release(Id<Thinker>),
 }

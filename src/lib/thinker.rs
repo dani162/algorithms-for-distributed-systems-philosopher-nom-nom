@@ -242,7 +242,8 @@ impl Thinker {
                 });
                 if expired {
                     self.forks.iter().for_each(|fork| {
-                        self.transceiver.send(ForkMessages::Release, &fork.address);
+                        self.transceiver
+                            .send(ForkMessages::Release(self.id.clone()), &fork.address);
                     });
                     self.transceiver
                         .send(ThinkerMessage::Token, &self.next_thinker.address);
@@ -279,7 +280,8 @@ impl Thinker {
                         self.transceiver
                             .send(ThinkerMessage::Token, &self.next_thinker.address);
                         self.forks.iter().for_each(|fork| {
-                            self.transceiver.send(ForkMessages::Release, &fork.address)
+                            self.transceiver
+                                .send(ForkMessages::Release(self.id.clone()), &fork.address)
                         });
                         self.state = ThinkerState::Thinking {
                             stop_thinking_at: Instant::now()
@@ -302,7 +304,8 @@ impl Thinker {
                             self.transceiver
                                 .send(ThinkerMessage::Token, &self.next_thinker.address);
                             self.forks.iter().for_each(|fork| {
-                                self.transceiver.send(ForkMessages::Release, &fork.address)
+                                self.transceiver
+                                    .send(ForkMessages::Release(self.id.clone()), &fork.address)
                             });
                             self.state = ThinkerState::Hungry {
                                 token_state: HungryTokenState::WaitingForToken,

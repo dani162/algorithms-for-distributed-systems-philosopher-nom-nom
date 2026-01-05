@@ -97,46 +97,75 @@ impl Fork {
                 self.queue.push_back(QueuedThinker {
                     last_seen_at: Instant::now(),
                     thinker: ThinkerRef {
-                        id: thinker_id,
+                        id: thinker_id.clone(),
                         address: entity,
                     },
                 });
-                log::info!("Queued Thinker {entity} at position {}", self.queue.len());
+                log::info!(
+                    "Queued Thinker {} at position {}",
+                    &thinker_id,
+                    self.queue.len()
+                );
             }
-            ForkMessages::KeepAlive(id) => {
+            ForkMessages::KeepAlive(requester_id) => {
                 match &mut self.state {
                     ForkState::Unused => {
-                        log::warn!(
-                            "Got keep alive from {entity}, but fork is currently not in use"
-                        );
+                        if let Some(queued) = self
+                            .queue
+                            .iter_mut()
+                            .find(|queued_thinker| queued_thinker.thinker.id.eq(&requester_id))
+                        {
+                            queued.last_seen_at = Instant::now();
+                            self.transceiver.send(
+                                ThinkerMessage::ForkAlive(self.id.clone()),
+                                &queued.thinker.address,
+                            );
+                        } else {
+                            log::warn!(
+                                "Got keep alvie from {requester_id}, but requester is not queued. Fork currently unused."
+                            );
+                        }
                     }
                     ForkState::Used {
                         thinker,
                         last_seen_at,
                     } => {
-                        if thinker.id.eq(&id) {
+                        if thinker.id.eq(&requester_id) {
                             *last_seen_at = Instant::now();
                             self.transceiver
-                                .send(ThinkerMessage::ForkAlive(self.id.clone()), &entity);
-                        }
-                        // TODO: here is case needed that sets keep alive for queued entites
-                        //  and responds to those
-                        else {
+                                .send(ThinkerMessage::ForkAlive(self.id.clone()), &thinker.address);
+                        } else if let Some(queued) = self
+                            .queue
+                            .iter_mut()
+                            .find(|queued_thinker| queued_thinker.thinker.id.eq(&requester_id))
+                        {
+                            queued.last_seen_at = Instant::now();
+                            self.transceiver.send(
+                                ThinkerMessage::ForkAlive(self.id.clone()),
+                                &queued.thinker.address,
+                            );
+                        } else {
                             log::warn!(
-                                "Got keep alive from {entity}, but fork is currently used by {}",
-                                thinker.address
+                                "Got keep alive from {requester_id}, but fork is currently used by {}",
+                                thinker.id
                             );
                         }
                     }
                 };
             }
-            ForkMessages::Release => match self.state {
-                ForkState::Used { .. } => {
+            ForkMessages::Release(id) => match &self.state {
+                ForkState::Used { thinker, .. } if thinker.id.eq(&id) => {
+                    log::info!("Fork released by {}", thinker.id);
                     self.state = ForkState::Unused;
-                    log::info!("Fork released by {entity}");
+                }
+                ForkState::Used { .. } => {
+                    log::error!(
+                        "Got release from {} that currently doesnt hold the fork",
+                        id
+                    );
                 }
                 ForkState::Unused => {
-                    log::error!("Got release message from {entity}, but is currently not used");
+                    log::error!("Got release message from {id}, but is currently not used");
                 }
             },
             ForkMessages::Init(_) => {
@@ -157,7 +186,7 @@ impl Fork {
                         ThinkerMessage::TakeForkAccepted(self.id.clone()),
                         &next.thinker.address,
                     );
-                    log::info!("Fork taken by {}", next.thinker.address);
+                    log::info!("Fork taken by {}", next.thinker.id);
                 }
             }
             ForkState::Used {
@@ -168,7 +197,7 @@ impl Fork {
                     let thinker = thinker.clone();
                     log::warn!(
                         "No keep alive from thinker {}. Releasing fork access",
-                        thinker.address
+                        thinker.id
                     );
                     self.state = ForkState::Unused;
                 }

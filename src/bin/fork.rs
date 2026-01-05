@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use philosopher_nom_nom_ring::lib::config::Config;
 use philosopher_nom_nom_ring::lib::fork::{Fork, ForkInitParams};
 use philosopher_nom_nom_ring::lib::messages::{ForkMessages, InitMessages};
-use philosopher_nom_nom_ring::lib::transceiver::{self, Transceiver};
+use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
 use philosopher_nom_nom_ring::lib::utils::Id;
 use philosopher_nom_nom_ring::lib::visualizer::VisualizerRef;
 use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, TICK_INTERVAL, init_logger};
