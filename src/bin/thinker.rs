@@ -46,7 +46,7 @@ fn main() {
         transceiver,
         unhandled_messages,
         init_params.forks,
-        init_params.next_thinker,
+        init_params.next_thinkers,
         init_params.owns_token,
         init_params.visualizer,
     );

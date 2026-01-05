@@ -66,12 +66,24 @@ impl From<&ThinkerState> for VisualizerThinkerState {
 }
 
 #[derive(Debug)]
+pub struct ThinkerRefLastSeen {
+    thinker: ThinkerRef,
+    last_seen_at: Instant,
+}
+
+impl ThinkerRefLastSeen {
+    pub fn is_timeouted(&self) -> bool {
+        self.last_seen_at.elapsed() > KEEP_ALIVE_TIMEOUT
+    }
+}
+
+#[derive(Debug)]
 pub struct Thinker {
     id: Id<Thinker>,
     transceiver: Transceiver,
     state: ThinkerState,
     forks: [ForkRef; 2],
-    next_thinker: ThinkerRef,
+    next_thinkers: Vec<ThinkerRefLastSeen>,
     rng: ThreadRng,
     visualizer: Option<VisualizerRef>,
 }
@@ -81,14 +93,14 @@ impl Thinker {
         transceiver: Transceiver,
         unhandled_messages: Vec<(ThinkerMessage, SocketAddr)>,
         forks: [ForkRef; 2],
-        next_thinker: ThinkerRef,
+        next_thinkers: Vec<ThinkerRef>,
         has_token: bool,
         visualizer: Option<VisualizerRef>,
     ) -> Self {
         let mut rng = rand::rng();
 
         if has_token {
-            transceiver.send(ThinkerMessage::Token, &next_thinker.address);
+            transceiver.send(ThinkerMessage::Token, &next_thinkers[0].address);
         }
         let mut thinker = Self {
             id,
@@ -98,7 +110,13 @@ impl Thinker {
                     + rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
             },
             forks,
-            next_thinker,
+            next_thinkers: next_thinkers
+                .into_iter()
+                .map(|thinker| ThinkerRefLastSeen {
+                    thinker,
+                    last_seen_at: Instant::now(),
+                })
+                .collect(),
             rng,
             visualizer,
         };
@@ -110,30 +128,45 @@ impl Thinker {
         thinker
     }
 
+    fn pass_token(&mut self) {
+        if let Some(next_thinker) = &self
+            .next_thinkers
+            .iter()
+            .find(|x| !x.is_timeouted())
+            .map(|x| x.thinker.clone())
+        {
+            self.transceiver
+                .send(ThinkerMessage::Token, &next_thinker.address);
+            log::info!("Passed token to next alive thinker {}", next_thinker.id)
+        } else {
+            log::error!("All following thinkers are currently timed out. Dropping token.");
+        }
+    }
+
     pub fn handle_message(&mut self, message: ThinkerMessage, entity: SocketAddr) {
         match &message {
             ThinkerMessage::Init { .. } => {
                 log::error!("Already initialized but got init message from {entity}");
             }
-            ThinkerMessage::Token => match &mut self.state {
-                ThinkerState::Thinking { .. }
-                | ThinkerState::WaitingForForks { .. }
-                | ThinkerState::Eating { .. } => {
-                    // Token not needed at the moment, passing token to next node
-                    self.transceiver
-                        .send(ThinkerMessage::Token, &self.next_thinker.address);
-                }
-                ThinkerState::Hungry { token_state } => match token_state {
-                    HungryTokenState::WaitingForToken => {
-                        *token_state = HungryTokenState::TokenReceived
-                    }
-                    HungryTokenState::TokenReceived => {
+            ThinkerMessage::Token => {
+                match &mut self.state {
+                    ThinkerState::Thinking { .. }
+                    | ThinkerState::WaitingForForks { .. }
+                    | ThinkerState::Eating { .. } => {
                         // Token not needed at the moment, passing token to next node
-                        self.transceiver
-                            .send(ThinkerMessage::Token, &self.next_thinker.address);
+                        self.pass_token();
                     }
-                },
-            },
+                    ThinkerState::Hungry { token_state } => match token_state {
+                        HungryTokenState::WaitingForToken => {
+                            *token_state = HungryTokenState::TokenReceived
+                        }
+                        HungryTokenState::TokenReceived => {
+                            // Token not needed at the moment, passing token to next node
+                            self.pass_token();
+                        }
+                    },
+                }
+            }
             ThinkerMessage::TakeForkAccepted(id) => match &mut self.state {
                 ThinkerState::WaitingForForks(wait_states) => {
                     let (entity, wait_state) = self
@@ -197,10 +230,41 @@ impl Thinker {
                     }
                 };
             }
+            ThinkerMessage::ThinkerAliveRequest(_) => {
+                self.transceiver.send(
+                    ThinkerMessage::ThinkerAliveResponse(self.id.clone()),
+                    &entity,
+                );
+            }
+            ThinkerMessage::ThinkerAliveResponse(id) => {
+                if let Some(alive_thinker) = self
+                    .next_thinkers
+                    .iter_mut()
+                    .find(|next_thinker| next_thinker.thinker.id.eq(id))
+                {
+                    alive_thinker.last_seen_at = Instant::now();
+                } else {
+                    log::warn!("Got keep alive response from unkown thinker {}", id);
+                }
+            }
         }
     }
 
     pub fn update_state(&mut self) {
+        let mut alive_amount = 0;
+        for next_thinker in self.next_thinkers.iter() {
+            self.transceiver.send(
+                ThinkerMessage::ThinkerAliveRequest(self.id.clone()),
+                &next_thinker.thinker.address,
+            );
+            if !next_thinker.is_timeouted() {
+                alive_amount += 1;
+            }
+            if alive_amount >= 2 {
+                break;
+            }
+        }
+
         match &self.state {
             ThinkerState::Thinking { stop_thinking_at } => {
                 match Instant::now().cmp(stop_thinking_at) {
@@ -245,8 +309,7 @@ impl Thinker {
                         self.transceiver
                             .send(ForkMessages::Release(self.id.clone()), &fork.address);
                     });
-                    self.transceiver
-                        .send(ThinkerMessage::Token, &self.next_thinker.address);
+                    self.pass_token();
                     self.state = ThinkerState::Hungry {
                         token_state: HungryTokenState::WaitingForToken,
                     }
@@ -277,8 +340,7 @@ impl Thinker {
             } => {
                 match Instant::now().cmp(stop_eating_at) {
                     std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
-                        self.transceiver
-                            .send(ThinkerMessage::Token, &self.next_thinker.address);
+                        self.pass_token();
                         self.forks.iter().for_each(|fork| {
                             self.transceiver
                                 .send(ForkMessages::Release(self.id.clone()), &fork.address)
@@ -287,10 +349,7 @@ impl Thinker {
                             stop_thinking_at: Instant::now()
                                 + self.rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
                         };
-                        log::info!(
-                            "Start Thinking, transfer token to {}, release forks",
-                            self.next_thinker.address
-                        );
+                        log::info!("Start Thinking, release forks");
                     }
                     std::cmp::Ordering::Less => {
                         self.forks.iter().for_each(|fork| {
@@ -301,8 +360,7 @@ impl Thinker {
                             .iter()
                             .all(|at| at.elapsed() > KEEP_ALIVE_TIMEOUT);
                         if expired {
-                            self.transceiver
-                                .send(ThinkerMessage::Token, &self.next_thinker.address);
+                            self.pass_token();
                             self.forks.iter().for_each(|fork| {
                                 self.transceiver
                                     .send(ForkMessages::Release(self.id.clone()), &fork.address)

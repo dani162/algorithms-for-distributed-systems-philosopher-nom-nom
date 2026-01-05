@@ -18,6 +18,8 @@ pub struct InitCli {
     #[arg(long)]
     thinker: usize,
     #[arg(long)]
+    next_thinkers_amount: usize,
+    #[arg(long)]
     tokens: usize,
     #[arg(long)]
     visualizer: bool,
@@ -90,6 +92,7 @@ fn main() {
                     waiting_visualizer,
                     &transceiver,
                     cli.tokens,
+                    cli.next_thinkers_amount,
                 );
                 log::info!("Notified all queued entities. Shutting down");
                 return;
@@ -104,30 +107,34 @@ fn notify_entities(
     visualizer: Option<VisualizerRef>,
     transceiver: &Transceiver,
     amount_tokens: usize,
+    amount_next_thinkers: usize,
 ) {
     thinkers.shuffle(&mut rng());
     forks.shuffle(&mut rng());
 
     for i in 0..thinkers.len() {
-        let is_last = i + 1 == thinkers.len();
         let owns_token = i < amount_tokens;
 
-        let next_fork = if is_last {
-            forks.first().unwrap().clone()
-        } else {
-            forks[i + 1].clone()
-        };
+        let forks_of_thinker = (0..2)
+            .map(|index| {
+                let next_index = (index + i) % forks.len();
+                forks[next_index].clone()
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
-        let next_thinker = if is_last {
-            thinkers.first().unwrap().clone()
-        } else {
-            thinkers[i + 1].clone()
-        };
+        let next_thinkers = (1..=amount_next_thinkers)
+            .map(|index| {
+                let next_index = (index + i) % thinkers.len();
+                thinkers[next_index].clone()
+            })
+            .collect();
 
         let message = ThinkerMessage::Init(InitThinkerParams {
             owns_token,
-            forks: [forks[i].clone(), next_fork],
-            next_thinker,
+            forks: forks_of_thinker,
+            next_thinkers,
             visualizer: visualizer.clone(),
         });
         transceiver.send_reliable(message, &thinkers[i].address);

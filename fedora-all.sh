@@ -1,10 +1,11 @@
 #!/bin/bash
 
 NUM_THINKER=$1
-NUM_TOKENS=$2
+NUM_NEXT_THINKERS=$2
+NUM_TOKENS=$3
 VISUALIZER_ADDRESS=127.0.0.1:3334
 INIT_SERVER_ADDRESS=127.0.0.1:3333
-START_THINKER_COMMAND="./target/release/init 127.0.0.1:3333 --thinker $NUM_THINKER --tokens $NUM_TOKENS --visualizer || sleep 100"
+START_THINKER_COMMAND="./target/release/init 127.0.0.1:3333 --thinker $NUM_THINKER --next-thinkers-amount $NUM_NEXT_THINKERS --tokens $NUM_TOKENS --visualizer || sleep 100"
 
 rm -r ./config/
 mkdir ./config/
