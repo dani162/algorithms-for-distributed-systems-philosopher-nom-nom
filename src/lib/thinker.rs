@@ -9,6 +9,7 @@ use crate::lib::fork::ForkRef;
 use crate::lib::messages::thinker_messages::{Token, TokenRef};
 use crate::lib::messages::visualizer_messages::VisualizerThinkerState;
 use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerMessages};
+use crate::lib::thinker;
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::lib::visualizer::VisualizerRef;
@@ -171,23 +172,25 @@ impl Thinker {
     }
 
     fn token_broadcast(&self, token_ref: TokenRef, broadcast_issuer: Id<Thinker>) {
-        if let Some(next_thinker) = &self
-            .next_thinkers
-            .iter()
-            .take_while(|x| x.thinker.id.ne(&broadcast_issuer))
-            .find(|x| !x.is_timeouted())
-            .map(|x| x.thinker.clone())
-        {
+        for next_thinker in &self.next_thinkers {
+            if next_thinker.thinker.id.eq(&broadcast_issuer) {
+                return;
+            }
+            if next_thinker.is_timeouted() {
+                continue;
+            }
             self.transceiver.send(
                 ThinkerMessage::TokenAliveBroadcast {
                     token_ref,
                     broadcast_issuer,
                 },
-                &next_thinker.address,
+                &next_thinker.thinker.address,
             );
-        } else {
-            log::error!("All following thinkers are currently timed out. Dropping token.");
+            return;
         }
+        log::error!(
+            "All following thinkers are currently timed out. Dropping token alive broadcast."
+        )
     }
 
     fn pass_token(&self, token: Token) {
