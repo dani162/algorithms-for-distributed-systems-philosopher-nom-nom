@@ -101,7 +101,7 @@ fn main() {
                     next_thinkers: init_params.next_thinkers.clone(),
                     available_tokens: init_params.available_tokens.clone(),
                 }
-                .write(&path.join(format!("fork_{}.conf", id.value)));
+                .write(&path.join(format!("thinker_{}.conf", id.value)));
             }
 
             ThinkerInitParams {
