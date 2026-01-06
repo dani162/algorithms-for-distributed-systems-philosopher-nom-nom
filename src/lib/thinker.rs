@@ -9,7 +9,6 @@ use crate::lib::fork::ForkRef;
 use crate::lib::messages::thinker_messages::{Token, TokenRef};
 use crate::lib::messages::visualizer_messages::VisualizerThinkerState;
 use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerMessages};
-use crate::lib::thinker;
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::lib::visualizer::VisualizerRef;
