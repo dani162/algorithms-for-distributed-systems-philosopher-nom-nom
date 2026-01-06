@@ -94,6 +94,17 @@ impl TokenRefLastSeen {
     }
 }
 
+pub struct ThinkerInitParams {
+    pub id: Id<Thinker>,
+    pub transceiver: Transceiver,
+    pub unhandled_messages: Vec<(ThinkerMessage, SocketAddr)>,
+    pub forks: [ForkRef; 2],
+    pub next_thinkers: Vec<ThinkerRef>,
+    pub token: Option<Token>,
+    pub available_tokens: Vec<TokenRef>,
+    pub visualizer: Option<VisualizerRef>,
+}
+
 #[derive(Debug)]
 pub struct Thinker {
     id: Id<Thinker>,
@@ -106,31 +117,25 @@ pub struct Thinker {
     available_tokens: Vec<TokenRefLastSeen>,
 }
 impl Thinker {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        id: Id<Thinker>,
-        transceiver: Transceiver,
-        unhandled_messages: Vec<(ThinkerMessage, SocketAddr)>,
-        forks: [ForkRef; 2],
-        next_thinkers: Vec<ThinkerRef>,
-        token: Option<Token>,
-        visualizer: Option<VisualizerRef>,
-        available_tokens: Vec<TokenRef>,
-    ) -> Self {
+    pub fn new(init_params: ThinkerInitParams) -> Self {
         let mut rng = rand::rng();
 
-        if let Some(token) = token {
-            transceiver.send(ThinkerMessage::Token(token), &next_thinkers[0].address);
+        if let Some(token) = init_params.token {
+            init_params.transceiver.send(
+                ThinkerMessage::Token(token),
+                &init_params.next_thinkers[0].address,
+            );
         }
         let mut thinker = Self {
-            id,
-            transceiver,
+            id: init_params.id,
+            transceiver: init_params.transceiver,
             state: ThinkerState::Thinking {
                 stop_thinking_at: Instant::now()
                     + rng.random_range(MIN_THINKING_TIME..=MAX_THINKING_TIME),
             },
-            forks,
-            next_thinkers: next_thinkers
+            forks: init_params.forks,
+            next_thinkers: init_params
+                .next_thinkers
                 .into_iter()
                 .map(|thinker| ThinkerRefLastSeen {
                     thinker,
@@ -138,8 +143,9 @@ impl Thinker {
                 })
                 .collect(),
             rng,
-            visualizer,
-            available_tokens: available_tokens
+            visualizer: init_params.visualizer,
+            available_tokens: init_params
+                .available_tokens
                 .into_iter()
                 .map(|token_ref| TokenRefLastSeen {
                     token_ref,
@@ -147,12 +153,21 @@ impl Thinker {
                 })
                 .collect(),
         };
-        unhandled_messages
+        init_params
+            .unhandled_messages
             .into_iter()
             .for_each(|(message, entity)| {
                 thinker.handle_message(message, entity);
             });
         thinker
+    }
+
+    pub fn print_started(&self) {
+        log::info!(
+            "Started Thinker {} {}",
+            self.transceiver.local_address(),
+            self.id,
+        )
     }
 
     fn token_broadcast(&self, token_ref: TokenRef, broadcast_issuer: Id<Thinker>) {
