@@ -1,5 +1,6 @@
 use std::net::{SocketAddr, UdpSocket};
 
+use rand::Rng;
 use rkyv::api::high::{HighSerializer, HighValidator};
 use rkyv::de::Pool;
 use rkyv::rancor::Strategy;
@@ -37,7 +38,11 @@ impl Transceiver {
         T::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<T, Strategy<Pool, rkyv::rancor::Error>>,
     {
-        self.send_reliable(message, to);
+        if rand::rng().random_bool(0.95) {
+            self.send_reliable(message, to);
+        } else {
+            // log::debug!("Dropped message {:?}", { message });
+        }
     }
 
     pub fn receive<T>(&self, buffer: &mut [u8]) -> Option<(T, SocketAddr)>

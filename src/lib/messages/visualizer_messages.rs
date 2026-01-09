@@ -1,6 +1,9 @@
+use std::time::Duration;
+
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::lib::fork::{Fork, ForkRef};
+use crate::lib::messages::thinker_messages::TokenRef;
 use crate::lib::thinker::{Thinker, ThinkerRef};
 use crate::lib::utils::Id;
 
@@ -17,6 +20,7 @@ pub enum VisualizerMessages {
     ThinkerStateChanged {
         id: Id<Thinker>,
         state: VisualizerThinkerState,
+        token_state: Vec<VisualizerThinkerAvailableTokenState>,
     },
 }
 
@@ -30,6 +34,17 @@ pub enum VisualizerForkState {
 pub enum VisualizerThinkerState {
     Thinking,
     Hungry,
-    WaitingForForks,
-    Eating,
+    WaitingForForks { token: TokenRef },
+    Eating { token: TokenRef },
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug)]
+pub enum VisualizerThinkerAvailableTokenState {
+    Passive {
+        not_seen_for: Duration,
+    },
+    Propose {
+        token_version: u32,
+        propose_version: u32,
+    },
 }

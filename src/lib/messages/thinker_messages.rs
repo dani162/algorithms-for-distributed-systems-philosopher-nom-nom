@@ -2,14 +2,14 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::lib::fork::{Fork, ForkRef};
 use crate::lib::thinker::{Thinker, ThinkerRef};
-use crate::lib::utils::Id;
+use crate::lib::utils::{EntityType, Id};
 use crate::lib::visualizer::VisualizerRef;
 
 // TODO: Remove clone if possible, some weird borrow shit :(
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub struct Token {
-    id: Id<Token>,
-    pub version: usize,
+    pub id: Id<Token>,
+    pub version: u32,
     pub issuer: Id<Thinker>,
 }
 
@@ -21,30 +21,98 @@ impl Token {
             issuer,
         }
     }
+
+    pub fn priority(&self, other: &TokenRef) -> Option<TokenPriority> {
+        TokenRef::from(self).priority(other)
+    }
+}
+
+impl EntityType for Token {
+    fn display_name() -> &'static str {
+        "Token"
+    }
+}
+
+impl From<TokenProposal> for Token {
+    fn from(value: TokenProposal) -> Self {
+        Self {
+            id: value.proposed_token.id,
+            version: value.proposed_token.version,
+            issuer: value.proposed_token.issuer,
+        }
+    }
+}
+
+pub enum TokenPriority {
+    High,
+    Equal,
+    Low,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub struct TokenRef {
     pub id: Id<Token>,
-    pub seq: usize,
+    pub version: u32,
     pub issuer: Id<Thinker>,
+}
+
+impl TokenRef {
+    pub fn priority(&self, other: &Self) -> Option<TokenPriority> {
+        if self.id.ne(&other.id) {
+            return None;
+        }
+        Some(match self.version.cmp(&other.version) {
+            std::cmp::Ordering::Greater => TokenPriority::High,
+            std::cmp::Ordering::Less => TokenPriority::Low,
+            std::cmp::Ordering::Equal => match self.issuer.cmp(&other.issuer) {
+                std::cmp::Ordering::Less => TokenPriority::Low,
+                std::cmp::Ordering::Equal => TokenPriority::Equal,
+                std::cmp::Ordering::Greater => TokenPriority::High,
+            },
+        })
+    }
+
+    pub fn generate_proposal(&self, issuer: Id<Thinker>, proposal_version: u32) -> TokenProposal {
+        TokenProposal {
+            proposed_token: TokenRef {
+                id: self.id.clone(),
+                version: self.version + 1,
+                issuer,
+            },
+            propose_version: proposal_version,
+        }
+    }
 }
 
 impl From<&Token> for TokenRef {
     fn from(value: &Token) -> Self {
         Self {
             id: value.id.clone(),
-            seq: value.version,
+            version: value.version,
             issuer: value.issuer.clone(),
         }
     }
 }
 
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub struct TokenProposal {
+    pub proposed_token: TokenRef,
+    pub propose_version: u32,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub enum ForkState {
+    Queued,
+    Taken,
+}
+
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ThinkerMessage {
     Init(InitThinkerParams),
-    TakeForkAccepted(Id<Fork>),
-    ForkAlive(Id<Fork>),
+    ForkAlive {
+        id: Id<Fork>,
+        state: ForkState,
+    },
     ThinkerAliveRequest(Id<Thinker>),
     ThinkerAliveResponse(Id<Thinker>),
     Token(Token),
@@ -52,10 +120,7 @@ pub enum ThinkerMessage {
         token_ref: TokenRef,
         broadcast_issuer: Id<Thinker>,
     },
-    ProposeToken {
-        old_token: TokenRef,
-        new_token: TokenRef,
-    },
+    ProposeToken(TokenProposal),
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]

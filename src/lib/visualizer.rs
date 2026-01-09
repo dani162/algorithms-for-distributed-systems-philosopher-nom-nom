@@ -7,7 +7,9 @@ use rkyv::{Archive, Deserialize, Serialize};
 use crate::KEEP_ALIVE_TIMEOUT;
 use crate::lib::fork::ForkRef;
 use crate::lib::messages::VisualizerMessages;
-use crate::lib::messages::visualizer_messages::{VisualizerForkState, VisualizerThinkerState};
+use crate::lib::messages::visualizer_messages::{
+    VisualizerForkState, VisualizerThinkerAvailableTokenState, VisualizerThinkerState,
+};
 use crate::lib::thinker::ThinkerRef;
 use crate::lib::transceiver::Transceiver;
 
@@ -20,6 +22,7 @@ pub struct VisualizerRef {
 struct ThinkerState {
     thinker: ThinkerRef,
     visualizer_thinker_state: VisualizerThinkerState,
+    visualizer_available_token_state: Vec<VisualizerThinkerAvailableTokenState>,
     last_seen: Instant,
 }
 
@@ -47,6 +50,7 @@ impl Visualizer {
                     thinker,
                     visualizer_thinker_state: VisualizerThinkerState::Thinking,
                     last_seen: Instant::now(),
+                    visualizer_available_token_state: vec![],
                 })
                 .collect(),
             forks: forks
@@ -81,7 +85,11 @@ impl Visualizer {
                 el.visualizer_fork_state = state;
                 el.last_seen = Instant::now();
             }
-            VisualizerMessages::ThinkerStateChanged { id, state } => {
+            VisualizerMessages::ThinkerStateChanged {
+                id,
+                state,
+                token_state,
+            } => {
                 let el = self
                     .thinkers
                     .iter_mut()
@@ -89,6 +97,7 @@ impl Visualizer {
                     .unwrap();
                 el.visualizer_thinker_state = state;
                 el.last_seen = Instant::now();
+                el.visualizer_available_token_state = token_state;
             }
         }
     }
@@ -129,7 +138,7 @@ impl Visualizer {
                 };
                 // Fork
                 let message = format!(
-                    "🍴 [{}][{:-^15}] {}",
+                    "🍴 [{}][{:-^15}]    {}",
                     fork_state_char, fork_state_str, fork_state.fork.id
                 );
                 println!(
@@ -159,36 +168,65 @@ impl Visualizer {
                 let thinker_state_char = match thinker_state.visualizer_thinker_state {
                     VisualizerThinkerState::Thinking => "🤔",
                     VisualizerThinkerState::Hungry => "😩",
-                    VisualizerThinkerState::WaitingForForks => "💤",
-                    VisualizerThinkerState::Eating => "🧀",
+                    VisualizerThinkerState::WaitingForForks { .. } => "💤",
+                    VisualizerThinkerState::Eating { .. } => "🧀",
                 };
                 let visualizer_state_str = match thinker_state.visualizer_thinker_state {
                     VisualizerThinkerState::Thinking => "Thinking",
                     VisualizerThinkerState::Hungry => "Hungry",
-                    VisualizerThinkerState::WaitingForForks => "WaitingForForks",
-                    VisualizerThinkerState::Eating => "Eating",
+                    VisualizerThinkerState::WaitingForForks { .. } => "WaitingForForks",
+                    VisualizerThinkerState::Eating { .. } => "Eating",
                 };
                 let message = format!(
                     "🧐 [{}][{:-^15}] {}",
-                    thinker_state_char, visualizer_state_str, thinker_state.thinker.id.value
+                    thinker_state_char, visualizer_state_str, thinker_state.thinker.id
                 );
                 // Thinker
                 println!(
-                    "{}",
+                    "{} [tnsf: {}] [{}]",
                     match thinker_state.last_seen.elapsed().cmp(&KEEP_ALIVE_TIMEOUT) {
                         std::cmp::Ordering::Less | std::cmp::Ordering::Equal =>
                             ColoredString::from(format!(
-                                "{} ({:?})",
+                                "{} ({:>4}ms)",
                                 message,
-                                thinker_state.last_seen.elapsed()
+                                thinker_state.last_seen.elapsed().as_millis()
                             )),
                         std::cmp::Ordering::Greater => ColoredString::from(format!(
                             "{} {}",
                             message.strikethrough().dimmed(),
                             "(dead)".red()
                         )),
+                    },
+                    thinker_state
+                        .visualizer_available_token_state
+                        .iter()
+                        .map(|el| match el {
+                            VisualizerThinkerAvailableTokenState::Passive { not_seen_for } =>
+                                format!("{:>4?}ms", not_seen_for.as_millis()),
+                            VisualizerThinkerAvailableTokenState::Propose {
+                                propose_version,
+                                token_version,
+                            } => {
+                                format!(" p{propose_version}->v{token_version} ")
+                            }
+                        })
+                        .collect::<Vec<String>>()
+                        .join(","),
+                    match &thinker_state.visualizer_thinker_state {
+                        VisualizerThinkerState::Thinking => "".to_string(),
+                        VisualizerThinkerState::Hungry => "".to_string(),
+                        VisualizerThinkerState::WaitingForForks { token }
+                        | VisualizerThinkerState::Eating { token } => format!(
+                            "tv: {}, id: {:4}",
+                            token.version,
+                            token.id.value.to_string().get(0..4).unwrap()
+                        ),
                     }
                 );
             });
+        println!();
+        println!("tnsf = token not seen for");
+        println!("tv = token version");
+        println!("p{{propose version number}}->v{{token version number}}");
     }
 }

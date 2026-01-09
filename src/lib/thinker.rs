@@ -6,26 +6,25 @@ use rand::rngs::ThreadRng;
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::lib::fork::ForkRef;
-use crate::lib::messages::thinker_messages::{Token, TokenRef};
-use crate::lib::messages::visualizer_messages::VisualizerThinkerState;
+use crate::lib::messages::thinker_messages::{
+    ForkState, Token, TokenPriority, TokenProposal, TokenRef,
+};
+use crate::lib::messages::visualizer_messages::{
+    VisualizerThinkerAvailableTokenState, VisualizerThinkerState,
+};
 use crate::lib::messages::{ForkMessages, ThinkerMessage, VisualizerMessages};
 use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::lib::visualizer::VisualizerRef;
 use crate::{
     KEEP_ALIVE_TIMEOUT, MAX_EATING_TIME, MAX_THINKING_TIME, MIN_EATING_TIME, MIN_THINKING_TIME,
+    TOKEN_TIMEOUT,
 };
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct ThinkerRef {
     pub address: SocketAddr,
     pub id: Id<Thinker>,
-}
-
-#[derive(Debug, Clone)]
-enum ForkState {
-    Waiting,
-    Taken,
 }
 
 #[derive(Debug, Clone)]
@@ -64,8 +63,14 @@ impl From<&ThinkerState> for VisualizerThinkerState {
         match value {
             ThinkerState::Thinking { .. } => VisualizerThinkerState::Thinking,
             ThinkerState::Hungry { .. } => VisualizerThinkerState::Hungry,
-            ThinkerState::WaitingForForks { .. } => VisualizerThinkerState::WaitingForForks,
-            ThinkerState::Eating { .. } => VisualizerThinkerState::Eating,
+            ThinkerState::WaitingForForks { token, .. } => {
+                VisualizerThinkerState::WaitingForForks {
+                    token: TokenRef::from(token),
+                }
+            }
+            ThinkerState::Eating { token, .. } => VisualizerThinkerState::Eating {
+                token: TokenRef::from(token),
+            },
         }
     }
 }
@@ -77,20 +82,42 @@ struct ThinkerRefLastSeen {
 }
 
 impl ThinkerRefLastSeen {
-    fn is_timeouted(&self) -> bool {
+    fn is_timed_out(&self) -> bool {
         self.last_seen_at.elapsed() > KEEP_ALIVE_TIMEOUT
     }
 }
 
 #[derive(Debug)]
+enum TokenRefLastSeenState {
+    Passive,
+    Propose(TokenProposal),
+}
+
+#[derive(Debug)]
 struct TokenRefLastSeen {
-    token_ref: TokenRef,
+    current_token_ref: TokenRef,
+    current_proposal_version: u32,
     last_seen_at: Instant,
+    state: TokenRefLastSeenState,
+}
+
+impl From<&TokenRefLastSeen> for VisualizerThinkerAvailableTokenState {
+    fn from(value: &TokenRefLastSeen) -> Self {
+        match &value.state {
+            TokenRefLastSeenState::Passive => Self::Passive {
+                not_seen_for: value.last_seen_at.elapsed(),
+            },
+            TokenRefLastSeenState::Propose(token_proposal) => Self::Propose {
+                token_version: token_proposal.proposed_token.version,
+                propose_version: token_proposal.propose_version,
+            },
+        }
+    }
 }
 
 impl TokenRefLastSeen {
-    fn _is_timeouted(&self) -> bool {
-        self.last_seen_at.elapsed() > KEEP_ALIVE_TIMEOUT
+    fn is_timed_out(&self) -> bool {
+        self.last_seen_at.elapsed() > TOKEN_TIMEOUT
     }
 }
 
@@ -148,8 +175,10 @@ impl Thinker {
                 .available_tokens
                 .into_iter()
                 .map(|token_ref| TokenRefLastSeen {
-                    token_ref,
+                    current_token_ref: token_ref,
                     last_seen_at: Instant::now(),
+                    state: TokenRefLastSeenState::Passive,
+                    current_proposal_version: 0,
                 })
                 .collect(),
         };
@@ -171,11 +200,12 @@ impl Thinker {
     }
 
     fn token_broadcast(&self, token_ref: TokenRef, broadcast_issuer: Id<Thinker>) {
+        // &self.mark_token_as_seen(&token_ref);
         for next_thinker in &self.next_thinkers {
             if next_thinker.thinker.id.eq(&broadcast_issuer) {
                 return;
             }
-            if next_thinker.is_timeouted() {
+            if next_thinker.is_timed_out() {
                 continue;
             }
             self.transceiver.send(
@@ -196,14 +226,53 @@ impl Thinker {
         if let Some(next_thinker) = &self
             .next_thinkers
             .iter()
-            .find(|x| !x.is_timeouted())
+            .find(|x| !x.is_timed_out())
             .map(|x| x.thinker.clone())
         {
             self.transceiver
                 .send(ThinkerMessage::Token(token), &next_thinker.address);
-            log::info!("Passed token to next alive thinker {}", next_thinker.id)
+            // log::info!("Passed token to next alive thinker {}", next_thinker.id)
         } else {
             log::error!("All following thinkers are currently timed out. Dropping token.");
+        }
+    }
+
+    fn pass_token_proposal(&self, token_proposal: TokenProposal) {
+        let issuer = &token_proposal.proposed_token.issuer;
+        for next_thinker in &self.next_thinkers {
+            if next_thinker.is_timed_out() {
+                if next_thinker.thinker.id.eq(issuer) {
+                    break;
+                } else {
+                    continue;
+                }
+            }
+            self.transceiver.send(
+                ThinkerMessage::ProposeToken(token_proposal),
+                &next_thinker.thinker.address,
+            );
+            break;
+        }
+    }
+
+    /// returns true if passed token is still uptodate
+    fn mark_token_as_seen(&mut self, token_ref: &TokenRef) -> bool {
+        let last_seen = self
+            .available_tokens
+            .iter_mut()
+            .find(|last_seen| last_seen.current_token_ref.id.eq(&token_ref.id))
+            .unwrap();
+
+        match token_ref.priority(&last_seen.current_token_ref).unwrap() {
+            TokenPriority::High | TokenPriority::Equal => {
+                last_seen.current_token_ref = token_ref.clone();
+                last_seen.last_seen_at = Instant::now();
+                true
+            }
+            TokenPriority::Low => {
+                // Got outdated token, do nothing
+                false
+            }
         }
     }
 
@@ -218,7 +287,11 @@ impl Thinker {
                     | ThinkerState::WaitingForForks { .. }
                     | ThinkerState::Eating { .. } => {
                         // Token not needed at the moment, passing token to next node
-                        self.pass_token(token);
+                        if self.mark_token_as_seen(&TokenRef::from(&token)) {
+                            self.pass_token(token);
+                        } else {
+                            log::warn!("Dropping outdated token {:?}", token);
+                        }
                     }
                     ThinkerState::Hungry { token_state } => match token_state {
                         HungryTokenState::WaitingForToken => {
@@ -226,69 +299,57 @@ impl Thinker {
                         }
                         HungryTokenState::TokenReceived(_) => {
                             // Token not needed at the moment, passing token to next node
-                            self.pass_token(token);
+                            if self.mark_token_as_seen(&TokenRef::from(&token)) {
+                                self.pass_token(token);
+                            } else {
+                                log::warn!("Dropping outdated token {:?}", token);
+                            }
                         }
                     },
                 }
             }
-            ThinkerMessage::TakeForkAccepted(id) => match &mut self.state {
-                ThinkerState::WaitingForForks { waiting_state, .. } => {
-                    let (entity, wait_state) = self
-                        .forks
-                        .iter()
-                        .zip(waiting_state)
-                        .find(|(fork, _)| fork.id.eq(&id))
-                        .unwrap();
-                    match wait_state.state {
-                        ForkState::Waiting => {
-                            *wait_state = WaitingForForkState {
-                                state: ForkState::Taken,
-                                last_seen_at: Instant::now(),
-                            };
-                            log::info!("Taken fork {}", entity.address);
-                        }
-                        ForkState::Taken => {
-                            log::error!("Got fork, but i already own it");
-                        }
-                    }
-                }
-                ThinkerState::Thinking { .. }
-                | ThinkerState::Eating { .. }
-                | ThinkerState::Hungry { .. } => {
-                    // This could happen if thinker node crashes restarts and afterwards gets
-                    //  the response from the fork.
-                }
-            },
-            ThinkerMessage::ForkAlive(id) => {
+            ThinkerMessage::ForkAlive {
+                id: fork_id,
+                state: new_fork_state,
+            } => {
                 match &mut self.state {
                     ThinkerState::Thinking { .. } | ThinkerState::Hungry { .. } => {
                         // Nothing to do here
                     }
-                    ThinkerState::WaitingForForks { waiting_state, .. } => match waiting_state
-                        .iter_mut()
-                        .zip(&self.forks)
-                        .find(|(_, fork)| fork.id.eq(&id))
-                    {
-                        Some((waiting_fork_state, _)) => {
-                            waiting_fork_state.last_seen_at = Instant::now();
+                    ThinkerState::WaitingForForks { waiting_state, .. } => {
+                        if let Some(own_fork_state) = waiting_state
+                            .iter_mut()
+                            .zip(&self.forks)
+                            .find(|(_, fork)| fork.id.eq(&fork_id))
+                            .map(|(fork_state, _)| fork_state)
+                        {
+                            match new_fork_state {
+                                ForkState::Taken => {
+                                    if matches!(own_fork_state.state, ForkState::Queued) {
+                                        log::info!("Taken fork {}", fork_id);
+                                        own_fork_state.state = ForkState::Taken;
+                                    }
+                                }
+                                ForkState::Queued => (),
+                            }
+                            own_fork_state.last_seen_at = Instant::now()
+                        } else {
+                            log::warn!("Got fork keep alive from unkown fork {}", fork_id)
                         }
-                        None => {
-                            log::warn!("Got fork keep alive from unkown fork {}", id)
-                        }
-                    },
+                    }
                     ThinkerState::Eating {
                         fork_last_seen_at, ..
                     } => {
                         match fork_last_seen_at
                             .iter_mut()
                             .zip(&self.forks)
-                            .find(|(_, fork)| fork.id.eq(&id))
+                            .find(|(_, fork)| fork.id.eq(&fork_id))
                         {
                             Some((last, _)) => {
                                 *last = Instant::now();
                             }
                             None => {
-                                log::warn!("Got fork keep alive from unkown fork {}", id)
+                                log::warn!("Got fork keep alive from unkown fork {}", fork_id)
                             }
                         }
                     }
@@ -311,23 +372,96 @@ impl Thinker {
                     log::warn!("Got keep alive response from unkown thinker {}", id);
                 }
             }
-            ThinkerMessage::ProposeToken { .. } => todo!(),
+            ThinkerMessage::ProposeToken(proposal) => {
+                if let Some(last_seen_token) = self
+                    .available_tokens
+                    .iter_mut()
+                    .find(|token| token.current_token_ref.id.eq(&proposal.proposed_token.id))
+                {
+                    match proposal
+                        .proposed_token
+                        .priority(&last_seen_token.current_token_ref)
+                        .unwrap()
+                    {
+                        TokenPriority::Low | TokenPriority::Equal => {
+                            log::warn!(
+                                "Outdated proposal {:?}, current: {:?}",
+                                proposal,
+                                last_seen_token.current_token_ref
+                            );
+                            // Proposal outdated, do nothing
+                        }
+                        TokenPriority::High => match &last_seen_token.state {
+                            TokenRefLastSeenState::Passive => {
+                                if proposal.proposed_token.issuer.ne(&self.id) {
+                                    last_seen_token.last_seen_at = Instant::now();
+                                    self.pass_token_proposal(proposal);
+                                } else {
+                                    // No longer in proposing state, do nothing
+                                }
+                            }
+                            TokenRefLastSeenState::Propose(own_proposal) => {
+                                let is_own_proposal = proposal.proposed_token.issuer.eq(&self.id);
+                                if !is_own_proposal {
+                                    match proposal
+                                        .proposed_token
+                                        .priority(&own_proposal.proposed_token)
+                                        .unwrap()
+                                    {
+                                        TokenPriority::High => {
+                                            last_seen_token.last_seen_at = Instant::now();
+                                            last_seen_token.current_proposal_version += 1;
+                                            last_seen_token.state = TokenRefLastSeenState::Passive;
+                                            log::info!(
+                                                "Got proposal from more priority issuer {} for token {}. Stepping down",
+                                                proposal.proposed_token.issuer,
+                                                proposal.proposed_token.id,
+                                            );
+                                            self.pass_token_proposal(proposal);
+                                        }
+                                        TokenPriority::Equal => unreachable!(),
+                                        TokenPriority::Low => {
+                                            log::info!(
+                                                "Got proposal from lower priority issuer {} for token {}. Dropping proposal",
+                                                proposal.proposed_token.issuer,
+                                                proposal.proposed_token.id,
+                                            );
+                                        }
+                                    }
+                                } else if proposal
+                                    .propose_version
+                                    .eq(&last_seen_token.current_proposal_version)
+                                {
+                                    let token = Token::from(proposal);
+                                    *last_seen_token = TokenRefLastSeen {
+                                        current_token_ref: TokenRef::from(&token),
+                                        current_proposal_version: last_seen_token
+                                            .current_proposal_version
+                                            + 1,
+                                        last_seen_at: Instant::now(),
+                                        state: TokenRefLastSeenState::Passive,
+                                    };
+                                    log::info!("Generated new token {}", token.id);
+                                    self.pass_token(token);
+                                } else {
+                                    log::warn!(
+                                        "Dropping own outdated token proposal {:?}",
+                                        proposal
+                                    )
+                                }
+                            }
+                        },
+                    }
+                } else {
+                    log::warn!("Token proposal for unkown token {:?}", proposal);
+                }
+            }
             ThinkerMessage::TokenAliveBroadcast {
                 token_ref,
                 broadcast_issuer,
             } => {
-                if let Some(available_token) = self
-                    .available_tokens
-                    .iter_mut()
-                    .find(|el| el.token_ref.id.eq(&token_ref.id))
-                {
-                    available_token.last_seen_at = Instant::now();
+                if self.mark_token_as_seen(&token_ref) {
                     self.token_broadcast(token_ref, broadcast_issuer);
-                } else {
-                    log::warn!(
-                        "Token alive broadcast message from unkown token {:?}",
-                        token_ref
-                    )
                 }
             }
         }
@@ -340,11 +474,57 @@ impl Thinker {
                 ThinkerMessage::ThinkerAliveRequest(self.id.clone()),
                 &next_thinker.thinker.address,
             );
-            if !next_thinker.is_timeouted() {
+            if !next_thinker.is_timed_out() {
                 alive_amount += 1;
             }
             if alive_amount >= 2 {
                 break;
+            }
+        }
+
+        self.available_tokens.iter_mut().for_each(|last_seen| {
+            if matches!(last_seen.state, TokenRefLastSeenState::Passive) && last_seen.is_timed_out()
+            {
+                last_seen.current_proposal_version += 1;
+                last_seen.state = TokenRefLastSeenState::Propose(
+                    last_seen
+                        .current_token_ref
+                        .generate_proposal(self.id.clone(), last_seen.current_proposal_version),
+                );
+                log::info!(
+                    "Token {} timed out, switching in proposed state",
+                    last_seen.current_token_ref.id
+                );
+            }
+        });
+
+        self.available_tokens
+            .iter()
+            .filter_map(|last_seen| match &last_seen.state {
+                TokenRefLastSeenState::Passive => None,
+                TokenRefLastSeenState::Propose(token_proposal) => Some(token_proposal),
+            })
+            .for_each(|proposal| self.pass_token_proposal(proposal.clone()));
+
+        let active_token = match &self.state {
+            ThinkerState::WaitingForForks { token, .. } | ThinkerState::Eating { token, .. } => {
+                Some(TokenRef::from(token))
+            }
+            ThinkerState::Hungry { token_state, .. } => match token_state {
+                HungryTokenState::WaitingForToken => None,
+                HungryTokenState::TokenReceived(token) => Some(TokenRef::from(token)),
+            },
+            ThinkerState::Thinking { .. } => {
+                // No token, nothing to do
+                None
+            }
+        };
+        if let Some(active_token) = active_token {
+            let token_still_valid = self.mark_token_as_seen(&active_token);
+            if !token_still_valid {
+                self.state = ThinkerState::Hungry {
+                    token_state: HungryTokenState::WaitingForToken,
+                }
             }
         }
 
@@ -371,11 +551,11 @@ impl Thinker {
                         self.token_broadcast(token.into(), self.id.clone());
                         self.forks.iter().for_each(|fork| {
                             self.transceiver
-                                .send(ForkMessages::Take(self.id.clone()), &fork.address);
+                                .send(ForkMessages::KeepAlive(self.id.clone()), &fork.address);
                         });
                         self.state = ThinkerState::WaitingForForks {
                             waiting_state: self.forks.clone().map(|_| WaitingForForkState {
-                                state: ForkState::Waiting,
+                                state: ForkState::Queued,
                                 last_seen_at: Instant::now(),
                             }),
                             token: token.clone(),
@@ -479,6 +659,7 @@ impl Thinker {
                 VisualizerMessages::ThinkerStateChanged {
                     id: self.id.clone(),
                     state: (&self.state).into(),
+                    token_state: self.available_tokens.iter().map(|el| el.into()).collect(),
                 },
                 &visualizer.address,
             );
