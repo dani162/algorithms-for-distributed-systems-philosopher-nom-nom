@@ -17,8 +17,8 @@ use crate::lib::transceiver::Transceiver;
 use crate::lib::utils::{EntityType, Id};
 use crate::lib::visualizer::VisualizerRef;
 use crate::{
-    KEEP_ALIVE_TIMEOUT, MAX_EATING_TIME, MAX_THINKING_TIME, MIN_EATING_TIME, MIN_THINKING_TIME,
-    TOKEN_TIMEOUT,
+    KEEP_ALIVE_TIMEOUT, KEEP_TOKEN_ALIVE_TIMEOUT, MAX_EATING_TIME, MAX_THINKING_TIME,
+    MIN_EATING_TIME, MIN_THINKING_TIME,
 };
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
@@ -117,7 +117,7 @@ impl From<&TokenRefLastSeen> for VisualizerThinkerAvailableTokenState {
 
 impl TokenRefLastSeen {
     fn is_timed_out(&self) -> bool {
-        self.last_seen_at.elapsed() > TOKEN_TIMEOUT
+        self.last_seen_at.elapsed() > KEEP_TOKEN_ALIVE_TIMEOUT
     }
 }
 
@@ -189,6 +189,27 @@ impl Thinker {
                 thinker.handle_message(message, entity);
             });
         thinker
+    }
+
+    pub fn reset(self) -> Self {
+        Self::new(ThinkerInitParams {
+            id: self.id,
+            transceiver: self.transceiver.reset(),
+            unhandled_messages: vec![],
+            forks: self.forks,
+            next_thinkers: self
+                .next_thinkers
+                .into_iter()
+                .map(|el| el.thinker)
+                .collect(),
+            token: None,
+            available_tokens: self
+                .available_tokens
+                .into_iter()
+                .map(|el| el.current_token_ref)
+                .collect(),
+            visualizer: self.visualizer,
+        })
     }
 
     pub fn print_started(&self) {

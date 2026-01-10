@@ -79,6 +79,15 @@ impl Fork {
         fork
     }
 
+    pub fn reset(self) -> Self {
+        Self::new(ForkInitParams {
+            id: self.id,
+            transceiver: self.transceiver.reset(),
+            visualizer: self.visualizer,
+            unhandled_messages: vec![],
+        })
+    }
+
     pub fn print_started(&self) {
         log::info!(
             "Started fork {} {}",

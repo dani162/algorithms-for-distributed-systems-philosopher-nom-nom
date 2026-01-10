@@ -11,7 +11,11 @@ use philosopher_nom_nom_ring::lib::thinker::{Thinker, ThinkerInitParams, Thinker
 use philosopher_nom_nom_ring::lib::transceiver::Transceiver;
 use philosopher_nom_nom_ring::lib::utils::Id;
 use philosopher_nom_nom_ring::lib::visualizer::VisualizerRef;
-use philosopher_nom_nom_ring::{NETWORK_BUFFER_SIZE, TICK_INTERVAL, init_logger};
+use philosopher_nom_nom_ring::{
+    MAX_CRASH_DURATION, MIN_CRASH_DURATION, NETWORK_BUFFER_SIZE, TICK_INTERVAL, init_logger,
+    should_crash,
+};
+use rand::Rng;
 use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Subcommand, Debug)]
@@ -123,5 +127,16 @@ fn main() {
         thinker.tick(&mut buffer);
         thinker.update_visualizer();
         sleep(TICK_INTERVAL);
+        match should_crash() {
+            philosopher_nom_nom_ring::CrashStatus::Continue => (),
+            philosopher_nom_nom_ring::CrashStatus::Crash => {
+                sleep(rand::rng().random_range(MIN_CRASH_DURATION..=MAX_CRASH_DURATION));
+                thinker = thinker.reset();
+                continue;
+            }
+            philosopher_nom_nom_ring::CrashStatus::PermanentCrash => {
+                panic!("Permanently crashed")
+            }
+        }
     }
 }

@@ -8,6 +8,8 @@ use rkyv::ser::allocator::ArenaHandle;
 use rkyv::util::AlignedVec;
 use rkyv::{Archive, Deserialize, Serialize, bytecheck::CheckBytes};
 
+use crate::DROP_MESSAGE_PERCENTAGE;
+
 #[derive(Debug)]
 pub struct Transceiver {
     socket: UdpSocket,
@@ -16,6 +18,14 @@ impl Transceiver {
     pub fn new(socket: UdpSocket) -> Self {
         socket.set_nonblocking(true).unwrap();
         Self { socket }
+    }
+
+    pub fn reset(self) -> Self {
+        let address = self.socket.local_addr().unwrap();
+        std::mem::drop(self);
+        Self {
+            socket: UdpSocket::bind(address).unwrap(),
+        }
     }
 
     pub fn send_reliable<T>(&self, message: T, to: &SocketAddr)
@@ -38,10 +48,8 @@ impl Transceiver {
         T::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<T, Strategy<Pool, rkyv::rancor::Error>>,
     {
-        if rand::rng().random_bool(0.95) {
+        if rand::rng().random_bool(DROP_MESSAGE_PERCENTAGE) {
             self.send_reliable(message, to);
-        } else {
-            // log::debug!("Dropped message {:?}", { message });
         }
     }
 
