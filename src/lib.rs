@@ -53,10 +53,10 @@ pub enum CrashStatus {
 
 pub fn should_crash() -> CrashStatus {
     match rand::rng().random_bool(*CRASH_PROBABILITY_PER_TICK) {
-        true => CrashStatus::Crash,
-        false => match rand::rng().random_bool(PERMANET_CRASH_PERCENTAGE) {
+        true => match rand::rng().random_bool(PERMANET_CRASH_PERCENTAGE) {
             true => CrashStatus::PermanentCrash,
             false => CrashStatus::Crash,
         },
+        false => CrashStatus::Continue,
     }
 }
