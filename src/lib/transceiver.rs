@@ -23,9 +23,9 @@ impl Transceiver {
     pub fn reset(self) -> Self {
         let address = self.socket.local_addr().unwrap();
         std::mem::drop(self);
-        Self {
-            socket: UdpSocket::bind(address).unwrap(),
-        }
+        let socket = UdpSocket::bind(address).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        Self { socket }
     }
 
     pub fn send_reliable<T>(&self, message: T, to: &SocketAddr)

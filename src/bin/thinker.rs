@@ -1,7 +1,6 @@
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use std::thread::sleep;
-use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 use philosopher_nom_nom_ring::lib::config::Config;
@@ -123,27 +122,26 @@ fn main() {
     };
 
     let mut thinker: Thinker = Thinker::new(init_params);
-    thinker.print_started();
     loop {
-        thinker.tick(&mut buffer);
-        thinker.update_visualizer();
-        sleep(TICK_INTERVAL);
-        match should_crash() {
-            philosopher_nom_nom_ring::CrashStatus::Continue => (),
-            philosopher_nom_nom_ring::CrashStatus::Crash => {
-                let crash_duration =
-                    rand::rng().random_range(MIN_CRASH_DURATION..=MAX_CRASH_DURATION);
-                println!(
-                    "Thinker crashed. Restarting at {:?}",
-                    Instant::now() + crash_duration
-                );
+        thinker.print_started();
+        loop {
+            thinker.tick(&mut buffer);
+            thinker.update_visualizer();
+            sleep(TICK_INTERVAL);
+            match should_crash() {
+                philosopher_nom_nom_ring::CrashStatus::Continue => (),
+                philosopher_nom_nom_ring::CrashStatus::Crash => {
+                    let crash_duration =
+                        rand::rng().random_range(MIN_CRASH_DURATION..=MAX_CRASH_DURATION);
+                    log::info!("Thinker crashed. Restarting in {:?}", (crash_duration));
 
-                sleep(crash_duration);
-                thinker = thinker.reset();
-                continue;
-            }
-            philosopher_nom_nom_ring::CrashStatus::PermanentCrash => {
-                panic!("Permanently crashed")
+                    sleep(crash_duration);
+                    thinker = thinker.reset();
+                    break;
+                }
+                philosopher_nom_nom_ring::CrashStatus::PermanentCrash => {
+                    panic!("Permanently crashed")
+                }
             }
         }
     }
