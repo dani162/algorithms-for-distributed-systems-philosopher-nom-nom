@@ -13,7 +13,7 @@ use philosopher_nom_nom_ring::{
     MAX_CRASH_DURATION, MIN_CRASH_DURATION, NETWORK_BUFFER_SIZE, TICK_INTERVAL, init_logger,
     should_crash,
 };
-use rand::{Rng, rng};
+use rand::Rng;
 use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Subcommand, Debug)]
