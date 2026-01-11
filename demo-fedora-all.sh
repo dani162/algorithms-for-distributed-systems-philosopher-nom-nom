@@ -12,8 +12,8 @@ mkdir ./config/
 cargo build --release
 ptyxis --new-window -- bash -c "$START_THINKER_COMMAND"
 sleep 0.5
-ptyxis --new-window -- bash -c "./fedora-thinkers-demo.sh 5"
+ptyxis --new-window -- bash -c "./demo-fedora-thinkers.sh 5"
 sleep 0.5
-ptyxis --new-window -- bash -c "./fedora-forkss-demo.sh 4"
+ptyxis --new-window -- bash -c "./demo-fedora-forks.sh 4"
 sleep 0.5
 ptyxis --new-window -- bash -c "./target/release/visualizer $VISUALIZER_ADDRESS --init-server $INIT_SERVER_ADDRESS"
