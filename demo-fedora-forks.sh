@@ -1,7 +1,7 @@
 #!/bin/bash
 
 NUM_FORKS=$1
-INIT_SERVER_ADDRESS=127.0.0.1:3333
+INIT_SERVER_ADDRESS=192.168.51.10:3333
 START_FORK_COMMAND="./target/release/fork init-server 0.0.0.0:0 --init-server $INIT_SERVER_ADDRESS --save-config-dir ./config/ || sleep 100"
 
 ptyxis --new-window -- bash -c "
