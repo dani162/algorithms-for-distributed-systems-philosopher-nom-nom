@@ -14,7 +14,7 @@ pub mod lib {
 }
 
 pub const NETWORK_BUFFER_SIZE: usize = 1024;
-pub const DROP_MESSAGE_PERCENTAGE: f64 = 0.95;
+pub const KEEP_MESSAGE_PERCENTAGE: f64 = 0.95;
 
 pub const TICK_INTERVAL: Duration = Duration::from_millis(250);
 pub const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(2);

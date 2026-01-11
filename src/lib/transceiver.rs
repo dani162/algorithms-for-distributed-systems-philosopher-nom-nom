@@ -8,7 +8,7 @@ use rkyv::ser::allocator::ArenaHandle;
 use rkyv::util::AlignedVec;
 use rkyv::{Archive, Deserialize, Serialize, bytecheck::CheckBytes};
 
-use crate::DROP_MESSAGE_PERCENTAGE;
+use crate::KEEP_MESSAGE_PERCENTAGE;
 
 #[derive(Debug)]
 pub struct Transceiver {
@@ -48,7 +48,7 @@ impl Transceiver {
         T::Archived: for<'a> CheckBytes<HighValidator<'a, rkyv::rancor::Error>>
             + Deserialize<T, Strategy<Pool, rkyv::rancor::Error>>,
     {
-        if rand::rng().random_bool(DROP_MESSAGE_PERCENTAGE) {
+        if rand::rng().random_bool(KEEP_MESSAGE_PERCENTAGE) {
             self.send_reliable(message, to);
         }
     }
