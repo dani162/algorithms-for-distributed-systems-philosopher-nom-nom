@@ -406,9 +406,9 @@ impl Thinker {
                     {
                         TokenPriority::Low | TokenPriority::Equal => {
                             log::warn!(
-                                "Outdated proposal {:?}, current: {:?}",
-                                proposal,
-                                last_seen_token.current_token_ref
+                                "Outdated proposal {} for token {}",
+                                proposal.propose_version,
+                                last_seen_token.current_token_ref.id,
                             );
                             // Proposal outdated, do nothing
                         }

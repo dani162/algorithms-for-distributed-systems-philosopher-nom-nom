@@ -28,10 +28,10 @@ pub const MAX_THINKING_TIME: Duration = Duration::from_secs(10);
 
 pub const MIN_CRASH_DURATION: Duration = Duration::from_secs(5);
 pub const MAX_CRASH_DURATION: Duration = Duration::from_secs(10);
-pub const PERMANET_CRASH_PERCENTAGE: f64 = 0.05;
+pub const PERMANET_CRASH_PERCENTAGE: f64 = 0.0;
 
 const NODE_SURVIVAL_TIMESPAN: Duration = Duration::from_secs(30);
-const NODE_SURVIVAL_PERCANTAGE: f64 = 0.1;
+const NODE_SURVIVAL_PERCANTAGE: f64 = 0.5;
 pub static CRASH_PROBABILITY_PER_TICK: LazyLock<f64> = LazyLock::new(|| {
     let tick_amount = NODE_SURVIVAL_TIMESPAN.div_duration_f64(TICK_INTERVAL);
     let survival_percentage = NODE_SURVIVAL_PERCANTAGE.powf(1.0 / tick_amount);
